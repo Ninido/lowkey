@@ -102,20 +102,24 @@ jobs:
           sha256sum lowkey*.* > checksums.txt
           cat checksums.txt
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.VERSION }}
-          name: "LowKey ${{ steps.tag.outputs.VERSION }}"
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/lowkey-*
-            dist/checksums.txt
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+      - name: Create or Update GitHub Release & Upload Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.VERSION }}
+        run: |
+          echo "Creating or updating GitHub Release for ${TAG}..."
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists, uploading assets..."
+          else
+            gh release create "${TAG}" \
+              --title "LowKey ${TAG}" \
+              --generate-notes \
+              --draft=false \
+              --prerelease=false
+          fi
+
+          echo "Uploading release assets with clobber..."
+          gh release upload "${TAG}" dist/* --clobber
 
       - name: Update Homebrew Tap Formula
         if: env.HOMEBREW_TAP_REPO != '' && env.HOMEBREW_PAT != ''
