@@ -9,8 +9,6 @@
 
 LowKey is a cross-platform interactive launcher and thermal duty-cycle orchestrator for local AI inference engines. It stops your laptop fans from screaming, keeps temperatures under 60°C, and prevents battery drain when hosting local models (`mtplx`, `llama.cpp`, `ollama`, `vLLM`, `MLX`, `LM Studio`).
 
-🌐 **[Visit the Website & Interactive Playground](https://ninido.github.io/lowkey)**
-
 ---
 
 ## Quick Install
