@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LowKey (⚡) — Run Local LLMs Silently, Cool, & Battery-Friendly</title>
+  <meta name="description" content="Stop your laptop fans from screaming. LowKey is the smart background orchestrator and thermal duty-cycle throttler for local LLMs on macOS, Linux, and Windows.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg: #090B10;
+      --card-bg: rgba(18, 22, 34, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent-purple: #7D56F4;
+      --accent-purple-glow: rgba(125, 86, 244, 0.35);
+      --accent-green: #04B575;
+      --accent-cyan: #00F0FF;
+      --accent-coral: #FF5F87;
+      --text: #F3F4F8;
+      --text-muted: #9BA3AF;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'Fira Code', ui-monospace, SFMono-Regular, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      overflow-x: hidden;
+      selection-background-color: var(--accent-purple);
+      selection-color: #fff;
+    }
+
+    /* Ambient background glows */
+    .glow-top {
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 600px;
+      background: radial-gradient(circle, var(--accent-purple-glow) 0%, rgba(4, 181, 117, 0.12) 50%, transparent 80%);
+      filter: blur(120px);
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navigation */
+    nav {
+      padding: 24px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--card-border);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(9, 11, 16, 0.85);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #fff;
+      text-decoration: none;
+    }
+
+    .logo-badge {
+      background: var(--accent-purple);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 0 15px var(--accent-purple-glow);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: #fff;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 14px;
+      text-decoration: none;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #7D56F4, #6030EB);
+      color: #fff;
+      box-shadow: 0 4px 20px var(--accent-purple-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(125, 86, 244, 0.5);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      transform: translateY(-1px);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 90px 0 60px;
+      text-align: center;
+      position: relative;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(125, 86, 244, 0.12);
+      border: 1px solid rgba(125, 86, 244, 0.35);
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #D6C7FF;
+      margin-bottom: 24px;
+    }
+
+    .badge-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 10px var(--accent-green);
+    }
+
+    .hero h1 {
+      font-size: clamp(38px, 6vw, 68px);
+      font-weight: 800;
+      letter-spacing: -2px;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      background: linear-gradient(180deg, #FFFFFF 0%, #B0B8C8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero h1 span.gradient {
+      background: linear-gradient(135deg, #00F0FF 0%, #7D56F4 60%, #FF5F87 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: clamp(17px, 2vw, 21px);
+      color: var(--text-muted);
+      max-width: 740px;
+      margin: 0 auto 36px;
+      font-weight: 400;
+    }
+
+    /* One-click install bar */
+    .install-bar {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #11141D;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 8px 10px 8px 18px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.4);
+      max-width: 100%;
+    }
+
+    .install-bar .command {
+      color: #A3E635;
+      user-select: all;
+    }
+
+    .install-bar .copy-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .install-bar .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .install-bar .copy-btn:active {
+      transform: scale(0.96);
+    }
+
+    /* Live Interactive Terminal Preview */
+    .terminal-container {
+      margin: 50px auto 30px;
+      max-width: 920px;
+      background: #0B0E17;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 18px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 30px rgba(125, 86, 244, 0.15);
+      overflow: hidden;
+      text-align: left;
+    }
+
+    .terminal-header {
+      background: #141926;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 7px;
+    }
+
+    .dot-ctrl {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #FF5F56; }
+    .dot-yellow { background: #FFBD2E; }
+    .dot-green { background: #27C93F; }
+
+    .terminal-title {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .terminal-body {
+      padding: 24px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.7;
+      color: #E2E8F0;
+      min-height: 360px;
+      overflow-x: auto;
+    }
+
+    .terminal-body .logo-tag {
+      background: #7D56F4;
+      color: #fff;
+      font-weight: 700;
+      padding: 1px 10px;
+      display: inline-block;
+      margin-bottom: 6px;
+    }
+
+    .t-green { color: #04B575; font-weight: 600; }
+    .t-purple { color: #A78BFA; }
+    .t-cyan { color: #00F0FF; }
+    .t-gray { color: #64748B; }
+    .t-yellow { color: #FBBF24; }
+    .t-pink { color: #F472B6; }
+
+    .interactive-controls {
+      display: flex;
+      gap: 12px;
+      padding: 12px 24px;
+      background: #101522;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .control-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .profile-pill-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #E2E8F0;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: var(--font-sans);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .profile-pill-btn.active {
+      background: var(--accent-purple);
+      border-color: var(--accent-purple);
+      color: #fff;
+      box-shadow: 0 0 15px var(--accent-purple-glow);
+    }
+
+    /* Comparison vs Direct Execution */
+    .comparison-section {
+      padding: 90px 0 60px;
+    }
+
+    .section-title {
+      text-align: center;
+      margin-bottom: 50px;
+    }
+
+    .section-title h2 {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 12px;
+    }
+
+    .section-title p {
+      color: var(--text-muted);
+      font-size: 18px;
+    }
+
+    .compare-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+
+    .compare-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 32px;
+      position: relative;
+      transition: transform 0.25s, border-color 0.25s;
+    }
+
+    .compare-card:hover {
+      transform: translateY(-4px);
+    }
+
+    .compare-card.winner {
+      border-color: rgba(125, 86, 244, 0.5);
+      background: linear-gradient(180deg, rgba(24, 28, 45, 0.85) 0%, rgba(15, 18, 30, 0.85) 100%);
+      box-shadow: 0 15px 40px rgba(125, 86, 244, 0.15);
+    }
+
+    .compare-card .tag {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      margin-bottom: 18px;
+    }
+
+    .tag-danger { background: rgba(239, 68, 68, 0.2); color: #F87171; }
+    .tag-winner { background: rgba(125, 86, 244, 0.25); color: #C4B5FD; border: 1px solid rgba(125, 86, 244, 0.4); }
+
+    .stat-metric {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin: 20px 0;
+    }
+
+    .stat-metric .number {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -1px;
+    }
+
+    .number.bad { color: #F87171; }
+    .number.good { color: #34D399; }
+
+    .stat-metric .desc {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .compare-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .compare-list li {
+      display: flex;
+      gap: 12px;
+      font-size: 15px;
+      align-items: flex-start;
+    }
+
+    .compare-list li .icon {
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    /* Engine Grid */
+    .engine-section {
+      padding: 60px 0;
+      text-align: center;
+    }
+
+    .engine-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 16px;
+      margin-top: 36px;
+    }
+
+    .engine-chip {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 18px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .engine-chip:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
+    }
+
+    .engine-chip .name {
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .engine-chip .sub {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Interactive Duty Cycle Visualizer */
+    .duty-cycle-section {
+      padding: 70px 0;
+    }
+
+    .duty-box {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 36px;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .duty-timeline {
+      height: 38px;
+      width: 100%;
+      background: #11141E;
+      border-radius: 10px;
+      margin: 24px 0 16px;
+      display: flex;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .timeline-work {
+      background: linear-gradient(90deg, #7D56F4, #00F0FF);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .timeline-pause {
+      background: #1E2333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* Quick Install Accordion / Tabs */
+    .tabs-header {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .tab-btn {
+      padding: 8px 18px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      color: var(--text-muted);
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+      background: rgba(125, 86, 244, 0.2);
+      border-color: var(--accent-purple);
+      color: #fff;
+    }
+
+    .tab-content {
+      background: #0E121B;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 20px;
+      max-width: 680px;
+      margin: 0 auto;
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--card-border);
+      padding: 40px 0;
+      margin-top: 80px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    footer a {
+      color: #A78BFA;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 768px) {
+      .hero { padding: 50px 0 30px; }
+      .install-bar { flex-direction: column; gap: 8px; align-items: stretch; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow-top"></div>
+
+  <div class="container">
+    <!-- Navbar -->
+    <nav>
+      <a href="#" class="logo">
+        <span class="logo-badge">⚡ LOWKEY</span>
+      </a>
+      <div class="nav-links">
+        <a href="#how-it-works">How It Works</a>
+        <a href="#comparison">Compare</a>
+        <a href="#engines">Engines</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/ninido/lowkey" target="_blank" class="btn btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero">
+      <div class="badge-pill">
+        <span class="dot"></span>
+        <span>LowKey v0.1.0 • macOS • Linux • Windows</span>
+      </div>
+      <h1>
+        Run Local LLMs.<br>
+        <span class="gradient">Fans Stay Silent.</span>
+      </h1>
+      <p>
+        The intelligent local inference launcher and thermal duty-cycle throttler. No more boiling aluminum, thermal throttling degradation, or drained laptop batteries.
+      </p>
+
+      <div class="install-bar">
+        <span>$</span>
+        <span class="command" id="hero-cmd">brew install ninido/tap/lowkey</span>
+        <button class="copy-btn" onclick="copyHeroCmd()">Copy</button>
+      </div>
+
+      <!-- Live Interactive Terminal Visualizer -->
+      <div class="terminal-container">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <div class="dot-ctrl dot-red"></div>
+            <div class="dot-ctrl dot-yellow"></div>
+            <div class="dot-ctrl dot-green"></div>
+          </div>
+          <div class="terminal-title">lowkey — interactive terminal wizard</div>
+          <div style="width: 48px;"></div>
+        </div>
+
+        <div class="interactive-controls">
+          <span class="control-label">Switch Thermal Profile:</span>
+          <button class="profile-pill-btn active" onclick="switchProfile('quiet', this)">Quiet (Fans off)</button>
+          <button class="profile-pill-btn" onclick="switchProfile('balanced', this)">Balanced</button>
+          <button class="profile-pill-btn" onclick="switchProfile('eco', this)">Eco / Battery</button>
+          <button class="profile-pill-btn" onclick="switchProfile('priority-only', this)">Priority-Only</button>
+        </div>
+
+        <div class="terminal-body" id="term-display">
+          <div><span class="logo-tag">⚡ LOWKEY</span> <span class="t-gray">Silent, Cool & Battery-Friendly Local LLM Launcher</span></div>
+          <br>
+          <div><span class="t-purple">? How would you like to start?</span></div>
+          <div>  <span class="t-cyan">› ✨ Create New Setup (Interactive Wizard)</span></div>
+          <div>    📂 Load Saved Setup (3 available)</div>
+          <br>
+          <div><span class="t-purple">? Select Inference Engine:</span></div>
+          <div>  <span class="t-green">✅ mtplx</span> <span class="t-gray">(Apple Silicon MTP server - Detected)</span></div>
+          <div>    llama-server <span class="t-gray">(llama.cpp - Detected)</span></div>
+          <div>    lms <span class="t-gray">(LM Studio CLI - Detected)</span></div>
+          <br>
+          <div><span class="t-yellow">⚡ Profile Loaded:</span> <span class="t-cyan" id="term-profile-name">Quiet (Fans off)</span></div>
+          <div><span class="t-gray">Duty Cycle:</span> <span id="term-duty-desc" class="t-green">1200ms compute / 300ms pause (75% duty cycle)</span></div>
+          <div><span class="t-gray">OS Scheduling:</span> <span class="t-pink">taskpolicy -b -c background -d throttle -p &lt;PID&gt; (QoS Background)</span></div>
+          <br>
+          <div><span class="t-green">🚀 Engine running at http://127.0.0.1:8080/v1</span> <span class="t-gray">(Press Ctrl+C to stop)</span></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Why LowKey / Comparison -->
+    <section class="comparison-section" id="comparison">
+      <div class="section-title">
+        <h2>Why You Need LowKey</h2>
+        <p>Raw inference tools spike all cores to 100%, causing thermal degradation and jet engine fans.</p>
+      </div>
+
+      <div class="compare-grid">
+        <!-- Bad Way -->
+        <div class="compare-card">
+          <span class="tag tag-danger">Standard LLM Run</span>
+          <h3>Direct CLI Launch</h3>
+          <p style="color: var(--text-muted); margin-top: 8px;">Running `ollama run`, `vllm`, or `llama-server` naked in your terminal.</p>
+
+          <div class="stat-metric">
+            <span class="number bad">94°C</span>
+            <span class="desc">Peak Core Temp<br>Jet engine fan speeds</span>
+          </div>
+
+          <ul class="compare-list">
+            <li><span class="icon">❌</span> <span><strong>Instant Thermal Throttling:</strong> CPU/GPU clocks drop after 3 minutes.</span></li>
+            <li><span class="icon">❌</span> <span><strong>System Lag:</strong> UI stutters, browser tabs freeze, IDE drops frames.</span></li>
+            <li><span class="icon">❌</span> <span><strong>Battery Killer:</strong> Drains 40% battery in 30 minutes of background coding.</span></li>
+            <li><span class="icon">❌</span> <span><strong>Manual Port & Flag Hell:</strong> Repeating long flags on every launch.</span></li>
+          </ul>
+        </div>
+
+        <!-- LowKey Way -->
+        <div class="compare-card winner">
+          <span class="tag tag-winner">With LowKey</span>
+          <h3>Duty-Cycled & Throttled</h3>
+          <p style="color: var(--text-muted); margin-top: 8px;">Intelligent OS-level background queuing and micro-duty cycle pauses.</p>
+
+          <div class="stat-metric">
+            <span class="number good">58°C</span>
+            <span class="desc">Whisper Quiet<br>Fans stay idle or off</span>
+          </div>
+
+          <ul class="compare-list">
+            <li><span class="icon">✅</span> <span><strong>Silky Smooth Multitasking:</strong> Native OS QoS puts model in efficiency cores.</span></li>
+            <li><span class="icon">✅</span> <span><strong>2.8x Longer Battery:</strong> Intelligent micro-pauses let silicon cool between tokens.</span></li>
+            <li><span class="icon">✅</span> <span><strong>Auto-Engine Detection:</strong> One tool for Ollama, MLX, llama.cpp, and vLLM.</span></li>
+            <li><span class="icon">✅</span> <span><strong>1-Click Saved Profiles:</strong> Pick your saved stack and go in 2 seconds.</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Duty Cycle Visualizer -->
+    <section class="duty-cycle-section" id="how-it-works">
+      <div class="duty-box">
+        <h3 style="font-size: 24px; margin-bottom: 8px;">Micro-Duty Cycle Scheduling Explained</h3>
+        <p style="color: var(--text-muted); font-size: 15px;">
+          Silicon chips heat up exponentially during continuous uninterrupted compute. By applying micro-bursts of SIGSTOP/SIGCONT (or NtSuspendProcess), heat dissipates immediately without hurting token stream perception.
+        </p>
+
+        <div class="duty-timeline">
+          <div class="timeline-work" id="viz-work" style="width: 75%;">COMPUTE (1200ms)</div>
+          <div class="timeline-pause" id="viz-pause" style="width: 25%;">COOL (300ms)</div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted);">
+          <span>Active Token Generation (GPU/NPU Active)</span>
+          <span>Thermal Dissipation Window (Fans Never Spin Up)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Supported Engines -->
+    <section class="engine-section" id="engines">
+      <div class="section-title">
+        <h2>Zero-Config Engine Compatibility</h2>
+        <p>LowKey auto-discovers your installed engines, local weights, and caches.</p>
+      </div>
+
+      <div class="engine-grid">
+        <div class="engine-chip">
+          <div style="font-size: 28px;">🍎</div>
+          <div class="name">Apple MLX</div>
+          <div class="sub">mlx_lm & omlx</div>
+        </div>
+        <div class="engine-chip">
+          <div style="font-size: 28px;">🦙</div>
+          <div class="name">llama.cpp</div>
+          <div class="sub">llama-server</div>
+        </div>
+        <div class="engine-chip">
+          <div style="font-size: 28px;">⚡</div>
+          <div class="name">MTPLX</div>
+          <div class="sub">Speculative MTP Server</div>
+        </div>
+        <div class="engine-chip">
+          <div style="font-size: 28px;">🧪</div>
+          <div class="name">LM Studio</div>
+          <div class="sub">lms CLI wrapper</div>
+        </div>
+        <div class="engine-chip">
+          <div style="font-size: 28px;">🦙</div>
+          <div class="name">Ollama</div>
+          <div class="sub">Local library runner</div>
+        </div>
+        <div class="engine-chip">
+          <div style="font-size: 28px;">🚀</div>
+          <div class="name">vLLM</div>
+          <div class="sub">CUDA / ROCm / CPU</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section class="comparison-section" id="install">
+      <div class="section-title">
+        <h2>Get Started in 30 Seconds</h2>
+        <p>Choose your preferred installation method.</p>
+      </div>
+
+      <div class="tabs-header">
+        <button class="tab-btn active" onclick="selectTab('brew', this)">Homebrew (macOS/Linux)</button>
+        <button class="tab-btn" onclick="selectTab('curl', this)">One-Line Script</button>
+        <button class="tab-btn" onclick="selectTab('go', this)">Go Install</button>
+      </div>
+
+      <div class="tab-content" id="tab-brew">
+        <span style="color: #A3E635;">brew install ninido/tap/lowkey</span>
+        <button class="copy-btn" onclick="copyText('brew install ninido/tap/lowkey')">Copy</button>
+      </div>
+
+      <div class="tab-content" id="tab-curl" style="display: none;">
+        <span style="color: #A3E635;">curl -fsSL https://raw.githubusercontent.com/ninido/lowkey/main/install.sh | bash</span>
+        <button class="copy-btn" onclick="copyText('curl -fsSL https://raw.githubusercontent.com/ninido/lowkey/main/install.sh | bash')">Copy</button>
+      </div>
+
+      <div class="tab-content" id="tab-go" style="display: none;">
+        <span style="color: #A3E635;">go install github.com/ninido/lowkey@latest</span>
+        <button class="copy-btn" onclick="copyText('go install github.com/ninido/lowkey@latest')">Copy</button>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <p>
+        Built with ❤️ for AI engineers who value silent focus. Released under the <a href="https://github.com/ninido/lowkey/blob/main/LICENSE">MIT License</a>.
+      </p>
+    </footer>
+  </div>
+
+  <script>
+    const profiles = {
+      quiet: {
+        name: "Quiet (Fans off)",
+        desc: "1200ms compute / 300ms pause (75% duty cycle)",
+        workPct: 75,
+        pausePct: 25,
+        workTxt: "COMPUTE (1200ms)",
+        pauseTxt: "COOL (300ms)"
+      },
+      balanced: {
+        name: "Balanced",
+        desc: "1800ms compute / 200ms pause (88% duty cycle)",
+        workPct: 88,
+        pausePct: 12,
+        workTxt: "COMPUTE (1800ms)",
+        pauseTxt: "COOL (200ms)"
+      },
+      eco: {
+        name: "Eco / Battery Max",
+        desc: "800ms compute / 400ms pause (65% duty cycle)",
+        workPct: 65,
+        pausePct: 35,
+        workTxt: "COMPUTE (800ms)",
+        pauseTxt: "COOL (400ms)"
+      },
+      "priority-only": {
+        name: "Priority-Only (Continuous)",
+        desc: "100% duty cycle (No pauses, pure OS QoS Background priority)",
+        workPct: 100,
+        pausePct: 0,
+        workTxt: "COMPUTE (100% Continuous)",
+        pauseTxt: ""
+      }
+    };
+
+    function switchProfile(key, btn) {
+      document.querySelectorAll('.profile-pill-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const p = profiles[key];
+      document.getElementById('term-profile-name').innerText = p.name;
+      document.getElementById('term-duty-desc').innerText = p.desc;
+
+      const workEl = document.getElementById('viz-work');
+      const pauseEl = document.getElementById('viz-pause');
+
+      workEl.style.width = p.workPct + '%';
+      workEl.innerText = p.workTxt;
+
+      pauseEl.style.width = p.pausePct + '%';
+      pauseEl.innerText = p.pauseTxt;
+    }
+
+    function selectTab(type, btn) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      document.getElementById('tab-brew').style.display = type === 'brew' ? 'flex' : 'none';
+      document.getElementById('tab-curl').style.display = type === 'curl' ? 'flex' : 'none';
+      document.getElementById('tab-go').style.display = type === 'go' ? 'flex' : 'none';
+    }
+
+    function copyHeroCmd() {
+      const text = document.getElementById('hero-cmd').innerText;
+      copyText(text);
+    }
+
+    function copyText(str) {
+      navigator.clipboard.writeText(str).then(() => {
+        alert('Copied to clipboard: ' + str);
+      });
+    }
+  </script>
+</body>
+</html>

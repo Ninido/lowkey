@@ -1,0 +1,15 @@
+# Binaries built locally outside bin/ release directory
+/lowkey-bin
+/lowkey
+/bin/
+*.exe
+*.test
+*.out
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# User profiles / local tests
+.lowkey/

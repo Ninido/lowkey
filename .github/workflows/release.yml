@@ -1,0 +1,149 @@
+name: Release & Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag/version to release (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-main:
+    name: Ensure Release Originates From Protected Main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify commit belongs to main branch
+        run: |
+          echo "Verifying that commit ${{ github.sha }} is present in origin/main..."
+          git fetch origin main:refs/remotes/origin/main
+          if git merge-base --is-ancestor ${{ github.sha }} origin/main; then
+            echo "✅ Verified: Commit ${{ github.sha }} is on protected main branch."
+          else
+            echo "❌ Error: Releases are restricted to commits on the protected main branch."
+            exit 1
+          fi
+
+  build-and-release:
+    name: Build Multi-Environment Launchers & Create GitHub Release
+    needs: [verify-main]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          check-latest: true
+
+      - name: Extract Tag Version
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "CLEAN_VERSION=${VERSION#v}" >> $GITHUB_OUTPUT
+
+      - name: Build & Package Targets
+        run: |
+          mkdir -p dist
+
+          TARGETS=(
+            "darwin arm64 lowkey tar.gz"
+            "darwin amd64 lowkey tar.gz"
+            "linux amd64 lowkey tar.gz"
+            "linux arm64 lowkey tar.gz"
+            "windows amd64 lowkey.exe zip"
+            "windows arm64 lowkey.exe zip"
+          )
+
+          for TARGET in "${TARGETS[@]}"; do
+            read -r OS ARCH BINARY EXT <<< "$TARGET"
+            OUT_DIR="dist/pkg-lowkey-${OS}-${ARCH}"
+            mkdir -p "$OUT_DIR"
+            
+            echo "Building launcher for ${OS}/${ARCH}..."
+            CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH \
+            go build -trimpath -ldflags="-s -w -X main.version=${{ steps.tag.outputs.VERSION }}" -o "${OUT_DIR}/${BINARY}" .
+            
+            cp LICENSE README.md "$OUT_DIR/"
+
+            if [ "$EXT" = "zip" ]; then
+              (cd "$OUT_DIR" && zip -r "../../dist/lowkey-${{ steps.tag.outputs.VERSION }}-${OS}-${ARCH}.zip" .)
+              (cd "$OUT_DIR" && zip -r "../../dist/lowkey-${OS}-${ARCH}.zip" .)
+            else
+              tar -czf "dist/lowkey-${{ steps.tag.outputs.VERSION }}-${OS}-${ARCH}.tar.gz" -C "$OUT_DIR" .
+              # Also create unversioned bundle for brew formula and installer
+              tar -czf "dist/lowkey-${OS}-${ARCH}.tar.gz" -C "$OUT_DIR" .
+            fi
+
+            # Standalone launcher binary
+            cp "${OUT_DIR}/${BINARY}" "dist/lowkey-${OS}-${ARCH}${BINARY#lowkey}"
+          done
+
+          # Generate SHA256 checksums
+          cd dist
+          sha256sum lowkey*.* > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.VERSION }}
+          name: "LowKey ${{ steps.tag.outputs.VERSION }}"
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/lowkey-*
+            dist/checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Update Homebrew Tap Formula
+        if: env.HOMEBREW_TAP_REPO != '' && env.HOMEBREW_PAT != ''
+        env:
+          HOMEBREW_TAP_REPO: ${{ secrets.HOMEBREW_TAP_REPO }} # e.g. "ninido/homebrew-tap"
+          HOMEBREW_PAT: ${{ secrets.HOMEBREW_PAT }}
+          CLEAN_VERSION: ${{ steps.tag.outputs.CLEAN_VERSION }}
+        run: |
+          DARWIN_ARM64_SHA=$(sha256sum dist/lowkey-darwin-arm64.tar.gz | awk '{print $1}')
+          DARWIN_AMD64_SHA=$(sha256sum dist/lowkey-darwin-amd64.tar.gz | awk '{print $1}')
+          LINUX_ARM64_SHA=$(sha256sum dist/lowkey-linux-arm64.tar.gz | awk '{print $1}')
+          LINUX_AMD64_SHA=$(sha256sum dist/lowkey-linux-amd64.tar.gz | awk '{print $1}')
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git clone "https://x-access-token:${HOMEBREW_PAT}@github.com/${HOMEBREW_TAP_REPO}.git" tap-repo
+          cd tap-repo
+
+          # Update Formula/lowkey.rb
+          mkdir -p Formula
+          sed -e "s/version \".*\"/version \"${CLEAN_VERSION}\"/" \
+              -e "s/REPLACE_WITH_DARWIN_ARM64_SHA256/${DARWIN_ARM64_SHA}/" \
+              -e "s/REPLACE_WITH_DARWIN_AMD64_SHA256/${DARWIN_AMD64_SHA}/" \
+              -e "s/REPLACE_WITH_LINUX_ARM64_SHA256/${LINUX_ARM64_SHA}/" \
+              -e "s/REPLACE_WITH_LINUX_AMD64_SHA256/${LINUX_AMD64_SHA}/" \
+              ../Formula/lowkey.rb > Formula/lowkey.rb
+
+          git add Formula/lowkey.rb
+          git commit -m "chore: bump lowkey to ${CLEAN_VERSION}" || echo "No changes to commit"
+          git push origin main
