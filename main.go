@@ -15,6 +15,7 @@ import (
 	"lowkey/pkg/engine"
 	"lowkey/pkg/osutil"
 	"lowkey/pkg/profile"
+	"lowkey/pkg/ui"
 )
 
 var (
@@ -40,16 +41,15 @@ var (
 )
 
 func main() {
-	fmt.Println()
-	fmt.Println(titleStyle.Render("⚡ LOWKEY"))
-	fmt.Println(subtleStyle.Render("   Silent, Cool & Battery-Friendly Local LLM Launcher • Cross-Platform"))
-	fmt.Println()
-
 	throttler := osutil.NewOSThrottler()
 	defer throttler.Cleanup()
 
 	// Initial choice: Load saved setup OR Create new setup
 	savedProfiles, _ := profile.ListProfiles()
+	availableEngines := engine.DetectAvailable()
+
+	// Pretty Splash Screen
+	fmt.Print(ui.RenderSplash(len(availableEngines), len(savedProfiles), throttler.IsOnBattery()))
 
 	var startAction string
 	var startOptions []huh.Option[string]
