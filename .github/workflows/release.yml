@@ -95,11 +95,13 @@ jobs:
 
             # Standalone launcher binary
             cp "${OUT_DIR}/${BINARY}" "dist/lowkey-${OS}-${ARCH}${BINARY#lowkey}"
+            # Remove staging directory once packaged to avoid loose directory interference
+            rm -rf "$OUT_DIR"
           done
 
           # Generate SHA256 checksums
           cd dist
-          sha256sum lowkey*.* > checksums.txt
+          sha256sum lowkey* > checksums.txt
           cat checksums.txt
 
       - name: Create or Update GitHub Release & Upload Assets
@@ -119,7 +121,8 @@ jobs:
           fi
 
           echo "Uploading release assets with clobber..."
-          gh release upload "${TAG}" dist/* --clobber
+          # Find only files under dist/ to ensure directories are never passed to gh release upload
+          find dist -maxdepth 1 -type f -exec gh release upload "${TAG}" {} + --clobber
 
       - name: Update Homebrew Tap Formula
         if: env.HOMEBREW_TAP_REPO != '' && env.HOMEBREW_PAT != ''
