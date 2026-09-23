@@ -370,7 +370,7 @@ func launchEngine(throttler osutil.OSThrottler, eng engine.Engine, cfg *engine.L
 
 	// Clean shutdown handler
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	go func() {
 		<-sigChan
