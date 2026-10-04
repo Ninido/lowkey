@@ -73,17 +73,24 @@ func (l *LlamaCppEngine) DiscoverModels() ([]ModelInfo, error) {
 			if err != nil {
 				return nil
 			}
-			if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".gguf") {
-				if seen[path] {
-					return nil
-				}
-				seen[path] = true
-				results = append(results, ModelInfo{
-					ID:          path,
-					DisplayName: fmt.Sprintf("[%s] %s (%s)", filepath.Base(filepath.Dir(path)), info.Name(), formatSize(info.Size())),
-					Path:        path,
-				})
+			if info.IsDir() || !strings.HasSuffix(strings.ToLower(info.Name()), ".gguf") {
+				return nil
 			}
+
+			// Skip split files (00001-of-00012, etc.) — only list the first part
+			if isSplitFile(info.Name()) {
+				return nil
+			}
+
+			if seen[path] {
+				return nil
+			}
+			seen[path] = true
+			results = append(results, ModelInfo{
+				ID:          path,
+				DisplayName: modelDisplayName(info.Name()),
+				Path:        path,
+			})
 			return nil
 		})
 	}
@@ -109,6 +116,11 @@ func (l *LlamaCppEngine) BuildCommand(ctx context.Context, cfg *LaunchConfig) (*
 		args = append(args, "-c", strconv.Itoa(cfg.ContextSize))
 	}
 
+	// MTP GGUFs only speculate when asked; explicit extra_flags win.
+	if _, set := cfg.ExtraFlags["spec-type"]; !set && cfg.SpeculationDepth > 0 && IsMTPModel(cfg.ModelPath) {
+		args = append(args, "--spec-type", "draft-mtp", "--spec-draft-n-max", strconv.Itoa(cfg.SpeculationDepth))
+	}
+
 	for k, v := range cfg.ExtraFlags {
 		if v == "" {
 			args = append(args, "--"+k)
@@ -118,6 +130,35 @@ func (l *LlamaCppEngine) BuildCommand(ctx context.Context, cfg *LaunchConfig) (*
 	}
 
 	return exec.CommandContext(ctx, bin, args...), nil
+}
+
+// IsMTPModel reports whether a GGUF filename marks it as carrying MTP heads.
+// ponytail: filename heuristic, read GGUF metadata if names prove unreliable.
+func IsMTPModel(path string) bool {
+	return strings.Contains(strings.ToLower(filepath.Base(path)), "mtp")
+}
+
+// isSplitFile detects split GGUF files like "model-00001-of-00012.gguf"
+func isSplitFile(name string) bool {
+	// Match patterns like "-00002-of-00012.gguf" or "_00002_of_00012.gguf"
+	return strings.Contains(name, "-00") && strings.Contains(name, "-of-") ||
+		strings.Contains(name, "_00") && strings.Contains(name, "_of_")
+}
+
+// modelDisplayName extracts a human-readable model name from the filename
+func modelDisplayName(filename string) string {
+	// Strip .gguf extension
+	name := strings.TrimSuffix(strings.ToLower(filename), ".gguf")
+	
+	// Remove split file part if it slipped through
+	if idx := strings.Index(name, "-00001-of-"); idx > 0 {
+		name = name[:idx]
+	}
+	if idx := strings.Index(name, "_00001_of_"); idx > 0 {
+		name = name[:idx]
+	}
+	
+	return name
 }
 
 func formatSize(bytes int64) string {
