@@ -157,6 +157,29 @@ curl http://localhost:8000/v1/chat/completions \
 
 The router binds to `127.0.0.1` by default (localhost-only). Set `host` to `0.0.0.0` to allow external access.
 
+### Smart Memory Management
+
+The router automatically manages memory across models:
+- **Memory-aware loading**: Checks available memory before loading a model. If not enough space, evicts the least recently used idle model first
+- **Session protection**: Models with active sessions are never evicted, even if memory is tight
+- **Fallback models**: Specify fallback models that load if the primary can't (e.g., memory constraints)
+
+```json
+{
+  "models": {
+    "gpt-4o": {
+      "engine": "mtplx",
+      "path": "/path/to/large/model",
+      "fallback": ["gpt-4o-mini", "gpt-3.5-turbo"]
+    }
+  }
+}
+```
+
+### Idle Timeout
+
+Models idle for more than `idle_timeout_min` (default 10 minutes) are automatically unloaded to free memory.
+
 See [docs/router-config.md](docs/router-config.md) for full configuration reference.
 
 ---
