@@ -66,6 +66,32 @@ Each entry in the `models` object defines a model that can be requested via the 
 | `path` | string | Yes | — | Model path or identifier (engine-specific). For ollama: model name like `gemma:2b`. For others: file path or HuggingFace repo |
 | `context_size` | int | No | `8192` | Context window size in tokens |
 | `thermal_profile` | string | No | `quiet` | Thermal/power profile: `quiet`, `balanced`, `eco`, or `priority` |
+| `fallback` | array | No | — | Ordered list of model names to try if this model can't be loaded (e.g., memory constraints). Only tried after eviction fails. |
+
+## Example: Model with fallback
+
+```json
+{
+  "port": 8000,
+  "models": {
+    "gpt-4o": {
+      "engine": "mtplx",
+      "path": "/path/to/large/model",
+      "fallback": ["gpt-4o-mini", "gpt-3.5-turbo"]
+    },
+    "gpt-4o-mini": {
+      "engine": "ollama",
+      "path": "phi3:mini"
+    },
+    "gpt-3.5-turbo": {
+      "engine": "ollama",
+      "path": "phi3:small"
+    }
+  }
+}
+```
+
+If `gpt-4o` can't be loaded (e.g., not enough memory), the router tries `gpt-4o-mini`, then `gpt-3.5-turbo`.
 
 ## Example: Two models, different engines
 
