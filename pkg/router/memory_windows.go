@@ -3,7 +3,6 @@
 package router
 
 import (
-	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
