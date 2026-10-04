@@ -105,6 +105,7 @@ func (r *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request)
 		http.Error(w, fmt.Sprintf("failed to get instance for model %s: %v", modelName, err), http.StatusServiceUnavailable)
 		return
 	}
+	defer r.instanceMgr.EndSession(modelName)
 
 	r.proxyRequest(w, req, instance, body)
 }
@@ -132,6 +133,7 @@ func (r *Router) handleCompletions(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, fmt.Sprintf("failed to get instance for model %s: %v", modelName, err), http.StatusServiceUnavailable)
 		return
 	}
+	defer r.instanceMgr.EndSession(modelName)
 
 	r.proxyRequest(w, req, instance, body)
 }

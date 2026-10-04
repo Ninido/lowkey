@@ -19,6 +19,7 @@ type Instance struct {
 	Engine       engine.Engine
 	LastUsed     time.Time
 	Healthy      bool
+	ActiveSessions int
 }
 
 // InstanceManager manages the lifecycle of inference engine instances
@@ -38,29 +39,51 @@ func NewInstanceManager(cfg *RouterConfig) *InstanceManager {
 
 // GetInstance returns the instance for a model, spawning it if necessary
 func (im *InstanceManager) GetInstance(ctx context.Context, modelName string) (*Instance, error) {
-	im.mu.RLock()
+	im.mu.Lock()
 	instance, exists := im.instances[modelName]
-	im.mu.RUnlock()
-
 	if exists && instance.Healthy {
 		instance.LastUsed = time.Now()
+		instance.ActiveSessions++
+		im.mu.Unlock()
 		return instance, nil
 	}
+	im.mu.Unlock()
 
 	// Check if we have enough memory to load this model
 	modelCfg, exists := im.cfg.Models[modelName]
 	if exists {
 		if !im.hasEnoughMemory(modelCfg.Path) {
-			// Try to free up memory by killing idle instances
+			// Try to free up memory by killing idle instances (no active sessions)
 			im.evictIdleInstances()
 			if !im.hasEnoughMemory(modelCfg.Path) {
-				return nil, fmt.Errorf("not enough memory to load model %s. Try closing other applications or increasing idle_timeout_min", modelName)
+				return nil, fmt.Errorf("not enough memory to load model %s. A model is actively in use or no idle models can be unloaded", modelName)
 			}
 		}
 	}
 
 	// Spawn new instance
-	return im.spawnInstance(ctx, modelName)
+	inst, err := im.spawnInstance(ctx, modelName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Mark as having an active session
+	im.mu.Lock()
+	inst.ActiveSessions++
+	im.mu.Unlock()
+
+	return inst, nil
+}
+
+// EndSession marks a session as ended for a model
+func (im *InstanceManager) EndSession(modelName string) {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+
+	instance, exists := im.instances[modelName]
+	if exists && instance.ActiveSessions > 0 {
+		instance.ActiveSessions--
+	}
 }
 
 // hasEnoughMemory checks if there's enough memory to load a model
@@ -80,25 +103,34 @@ func (im *InstanceManager) hasEnoughMemory(modelPath string) bool {
 	return needed <= available - reserve
 }
 
-// evictIdleInstances kills the least recently used instances to free memory
+// evictIdleInstances kills the least recently used idle instances to free memory
+// Only evicts instances with no active sessions
 func (im *InstanceManager) evictIdleInstances() {
 	im.mu.Lock()
 	defer im.mu.Unlock()
 
-	// Find the least recently used instance
-	var oldestName string
-	var oldestTime time.Time
-	found := false
+	// Find idle instances (no active sessions) and sort by last used (oldest first)
+	type idleInstance struct {
+		name string
+		time time.Time
+	}
+	var idle []idleInstance
 
 	for name, inst := range im.instances {
-		if !found || inst.LastUsed.Before(oldestTime) {
-			oldestName = name
-			oldestTime = inst.LastUsed
-			found = true
+		if inst.ActiveSessions == 0 {
+			idle = append(idle, idleInstance{name: name, time: inst.LastUsed})
 		}
 	}
 
-	if found {
+	// Kill the oldest idle instance
+	if len(idle) > 0 {
+		var oldestIndex int
+		for i, inst := range idle {
+			if inst.time.Before(idle[oldestIndex].time) {
+				oldestIndex = i
+			}
+		}
+		oldestName := idle[oldestIndex].name
 		inst := im.instances[oldestName]
 		if inst.Process != nil && inst.Process.Process != nil {
 			_ = inst.Process.Process.Kill()
