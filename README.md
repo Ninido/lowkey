@@ -100,6 +100,87 @@ lowkey/
    - **Eco / Battery**: 800ms work / 400ms pause (65% duty cycle, maximizes battery life).
    - **Priority-Only**: 100% duty cycle with OS-level background/idle process scheduling.
    - Automatic AC / Battery power source detection.
+6. **Multi-Model Router**: Run multiple local models behind a single OpenAI-compatible API endpoint. The router automatically launches, manages, and shuts down model instances based on request patterns.
+
+---
+
+## Multi-Model Router
+
+The router lets you expose multiple local models through one endpoint. It manages model lifecycle (launch on demand, kill when idle) and memory allocation across models.
+
+### Quick Start
+
+```bash
+lowkey  # Choose "Create Router Config File" to interactively create a config
+lowkey  # Choose "Start Multi-Model Router" to launch with your config
+```
+
+### Config File Example
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8000,
+  "idle_timeout_min": 10,
+  "memory_reserve_pct": 10,
+  "models": {
+    "fast-small": {
+      "engine": "ollama",
+      "path": "gemma:2b",
+      "context_size": 8192,
+      "thermal_profile": "quiet"
+    },
+    "coder-27b": {
+      "engine": "llamacpp",
+      "path": "/Users/ninido/models/Qwen3.8-27B-TurboFCFusion.gguf",
+      "context_size": 16384,
+      "thermal_profile": "balanced"
+    }
+  }
+}
+```
+
+### Using the Router API
+
+```bash
+# List available models
+curl http://localhost:8000/v1/models
+
+# Chat with a specific model
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fast-small",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+The router binds to `127.0.0.1` by default (localhost-only). Set `host` to `0.0.0.0` to allow external access.
+
+### Smart Memory Management
+
+The router automatically manages memory across models:
+- **Memory-aware loading**: Checks available memory before loading a model. If not enough space, evicts the least recently used idle model first
+- **Session protection**: Models with active sessions are never evicted, even if memory is tight
+- **Fallback models**: Specify fallback models that load if the primary can't (e.g., memory constraints)
+
+```json
+{
+  "models": {
+    "large-70b": {
+      "engine": "mtplx",
+      "path": "/path/to/70b-model",
+      "fallback": ["coder-27b", "fast-small"]
+    }
+  }
+}
+```
+
+### Idle Timeout
+
+Models idle for more than `idle_timeout_min` (default 10 minutes) are automatically unloaded to free memory.
+
+See [docs/router-config.md](docs/router-config.md) for full configuration reference.
 
 ---
 

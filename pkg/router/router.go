@@ -14,6 +14,7 @@ import (
 
 // RouterConfig holds the router configuration
 type RouterConfig struct {
+	Host             string           `json:"host"`
 	Port             int              `json:"port"`
 	MemoryReservePct int              `json:"memory_reserve_pct"`
 	IdleTimeoutMin   int              `json:"idle_timeout_min"`
@@ -22,10 +23,11 @@ type RouterConfig struct {
 
 // ModelConfig holds configuration for a specific model
 type ModelConfig struct {
-	Engine         string `json:"engine"`
-	Path           string `json:"path"`
-	ContextSize    int    `json:"context_size"`
-	ThermalProfile string `json:"thermal_profile"`
+	Engine         string   `json:"engine"`
+	Path           string   `json:"path"`
+	ContextSize    int      `json:"context_size"`
+	ThermalProfile string   `json:"thermal_profile"`
+	Fallback       []string `json:"fallback,omitempty"`
 }
 
 // Router is the main router server
@@ -41,6 +43,9 @@ type Router struct {
 func NewRouter(cfg *RouterConfig) (*Router, error) {
 	if cfg.Port == 0 {
 		cfg.Port = 8000
+	}
+	if cfg.Host == "" {
+		cfg.Host = "127.0.0.1" // localhost-only by default for security
 	}
 	if cfg.IdleTimeoutMin == 0 {
 		cfg.IdleTimeoutMin = 10
@@ -68,8 +73,11 @@ func (r *Router) Run() error {
 	// Start idle instance reaper
 	go r.reapIdleInstances()
 
-	addr := fmt.Sprintf("127.0.0.1:%d", r.cfg.Port)
+	addr := fmt.Sprintf("%s:%d", r.cfg.Host, r.cfg.Port)
 	log.Printf("Router listening on %s", addr)
+	if r.cfg.Host != "127.0.0.1" && r.cfg.Host != "localhost" {
+		log.Printf("WARNING: Router is accessible from other machines (host=%s). Set host to 127.0.0.1 for localhost-only.", r.cfg.Host)
+	}
 	log.Printf("Available models: %v", r.modelNames())
 
 	return http.ListenAndServe(addr, mux)
@@ -98,6 +106,7 @@ func (r *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request)
 		http.Error(w, fmt.Sprintf("failed to get instance for model %s: %v", modelName, err), http.StatusServiceUnavailable)
 		return
 	}
+	defer r.instanceMgr.EndSession(modelName)
 
 	r.proxyRequest(w, req, instance, body)
 }
@@ -125,6 +134,7 @@ func (r *Router) handleCompletions(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, fmt.Sprintf("failed to get instance for model %s: %v", modelName, err), http.StatusServiceUnavailable)
 		return
 	}
+	defer r.instanceMgr.EndSession(modelName)
 
 	r.proxyRequest(w, req, instance, body)
 }

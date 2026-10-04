@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type MtplxEngine struct{}
@@ -71,8 +72,8 @@ func (m *MtplxEngine) DiscoverModels() ([]ModelInfo, error) {
 			}
 			seen[fullPath] = true
 
-			// If it's a directory or gguf/safetensors
-			if e.IsDir() {
+			// Only list directories that contain model files
+			if e.IsDir() && containsModelFiles(fullPath) {
 				results = append(results, ModelInfo{
 					ID:          fullPath,
 					DisplayName: fmt.Sprintf("[%s] %s", filepath.Base(dir), e.Name()),
@@ -83,6 +84,22 @@ func (m *MtplxEngine) DiscoverModels() ([]ModelInfo, error) {
 	}
 
 	return results, nil
+}
+
+// containsModelFiles checks if a directory contains actual model files
+func containsModelFiles(path string) bool {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(strings.ToLower(e.Name()), ".safetensors") ||
+			strings.HasSuffix(strings.ToLower(e.Name()), ".gguf") ||
+			strings.HasSuffix(strings.ToLower(e.Name()), ".bin") {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MtplxEngine) BuildCommand(ctx context.Context, cfg *LaunchConfig) (*exec.Cmd, error) {
