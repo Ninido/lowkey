@@ -47,8 +47,64 @@ func (im *InstanceManager) GetInstance(ctx context.Context, modelName string) (*
 		return instance, nil
 	}
 
+	// Check if we have enough memory to load this model
+	modelCfg, exists := im.cfg.Models[modelName]
+	if exists {
+		if !im.hasEnoughMemory(modelCfg.Path) {
+			// Try to free up memory by killing idle instances
+			im.evictIdleInstances()
+			if !im.hasEnoughMemory(modelCfg.Path) {
+				return nil, fmt.Errorf("not enough memory to load model %s. Try closing other applications or increasing idle_timeout_min", modelName)
+			}
+		}
+	}
+
 	// Spawn new instance
 	return im.spawnInstance(ctx, modelName)
+}
+
+// hasEnoughMemory checks if there's enough memory to load a model
+func (im *InstanceManager) hasEnoughMemory(modelPath string) bool {
+	needed, err := EstimateModelMemory(modelPath)
+	if err != nil {
+		return true // If we can't estimate, proceed anyway
+	}
+
+	available, err := GetAvailableMemoryBytes()
+	if err != nil {
+		return true // If we can't check, proceed anyway
+	}
+
+	// Keep reserve_pct free for the OS
+	reserve := int64(im.cfg.MemoryReservePct) * available / 100
+	return needed <= available - reserve
+}
+
+// evictIdleInstances kills the least recently used instances to free memory
+func (im *InstanceManager) evictIdleInstances() {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+
+	// Find the least recently used instance
+	var oldestName string
+	var oldestTime time.Time
+	found := false
+
+	for name, inst := range im.instances {
+		if !found || inst.LastUsed.Before(oldestTime) {
+			oldestName = name
+			oldestTime = inst.LastUsed
+			found = true
+		}
+	}
+
+	if found {
+		inst := im.instances[oldestName]
+		if inst.Process != nil && inst.Process.Process != nil {
+			_ = inst.Process.Process.Kill()
+		}
+		delete(im.instances, oldestName)
+	}
 }
 
 func (im *InstanceManager) spawnInstance(ctx context.Context, modelName string) (*Instance, error) {
