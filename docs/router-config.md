@@ -28,15 +28,15 @@ Router config is a JSON file. Example:
   "memory_reserve_pct": 10,
   "idle_timeout_min": 10,
   "models": {
-    "gpt-4o-mini": {
+    "fast-small": {
       "engine": "ollama",
       "path": "gemma:2b",
       "context_size": 8192,
       "thermal_profile": "quiet"
     },
-    "gpt-4o": {
-      "engine": "mtplx",
-      "path": "/path/to/larger/model",
+    "coder-27b": {
+      "engine": "llamacpp",
+      "path": "/Users/ninido/models/Qwen3.8-27B-TurboFCFusion.gguf",
       "context_size": 16384,
       "thermal_profile": "balanced"
     }
@@ -74,24 +74,24 @@ Each entry in the `models` object defines a model that can be requested via the 
 {
   "port": 8000,
   "models": {
-    "gpt-4o": {
+    "large-70b": {
       "engine": "mtplx",
-      "path": "/path/to/large/model",
-      "fallback": ["gpt-4o-mini", "gpt-3.5-turbo"]
+      "path": "/path/to/70b-model",
+      "fallback": ["coder-27b", "fast-small"]
     },
-    "gpt-4o-mini": {
-      "engine": "ollama",
-      "path": "phi3:mini"
+    "coder-27b": {
+      "engine": "llamacpp",
+      "path": "/path/to/27b-model.gguf"
     },
-    "gpt-3.5-turbo": {
+    "fast-small": {
       "engine": "ollama",
-      "path": "phi3:small"
+      "path": "gemma:2b"
     }
   }
 }
 ```
 
-If `gpt-4o` can't be loaded (e.g., not enough memory), the router tries `gpt-4o-mini`, then `gpt-3.5-turbo`.
+If `large-70b` can't be loaded (e.g., not enough memory), the router tries `coder-27b`, then `fast-small`.
 
 ## Example: Two models, different engines
 
@@ -100,13 +100,13 @@ If `gpt-4o` can't be loaded (e.g., not enough memory), the router tries `gpt-4o-
   "port": 8000,
   "idle_timeout_min": 5,
   "models": {
-    "small-fast": {
+    "subagent-fast": {
       "engine": "ollama",
-      "path": "phi3:mini",
+      "path": "gemma:2b",
       "context_size": 4096,
       "thermal_profile": "quiet"
     },
-    "big-smart": {
+    "main-work": {
       "engine": "llamacpp",
       "path": "/models/Mixtral-8x7B-Q5_K_M.gguf",
       "context_size": 32768,

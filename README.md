@@ -124,15 +124,15 @@ lowkey  # Choose "Start Multi-Model Router" to launch with your config
   "idle_timeout_min": 10,
   "memory_reserve_pct": 10,
   "models": {
-    "gpt-4o-mini": {
+    "fast-small": {
       "engine": "ollama",
       "path": "gemma:2b",
       "context_size": 8192,
       "thermal_profile": "quiet"
     },
-    "gpt-4o": {
-      "engine": "mtplx",
-      "path": "/path/to/larger/model",
+    "coder-27b": {
+      "engine": "llamacpp",
+      "path": "/Users/ninido/models/Qwen3.8-27B-TurboFCFusion.gguf",
       "context_size": 16384,
       "thermal_profile": "balanced"
     }
@@ -150,7 +150,7 @@ curl http://localhost:8000/v1/models
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4o-mini",
+    "model": "fast-small",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -167,10 +167,10 @@ The router automatically manages memory across models:
 ```json
 {
   "models": {
-    "gpt-4o": {
+    "large-70b": {
       "engine": "mtplx",
-      "path": "/path/to/large/model",
-      "fallback": ["gpt-4o-mini", "gpt-3.5-turbo"]
+      "path": "/path/to/70b-model",
+      "fallback": ["coder-27b", "fast-small"]
     }
   }
 }
