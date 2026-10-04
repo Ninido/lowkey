@@ -23,10 +23,11 @@ type RouterConfig struct {
 
 // ModelConfig holds configuration for a specific model
 type ModelConfig struct {
-	Engine         string `json:"engine"`
-	Path           string `json:"path"`
-	ContextSize    int    `json:"context_size"`
-	ThermalProfile string `json:"thermal_profile"`
+	Engine         string   `json:"engine"`
+	Path           string   `json:"path"`
+	ContextSize    int      `json:"context_size"`
+	ThermalProfile string   `json:"thermal_profile"`
+	Fallback       []string `json:"fallback,omitempty"`
 }
 
 // Router is the main router server

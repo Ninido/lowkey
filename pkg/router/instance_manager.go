@@ -39,6 +39,30 @@ func NewInstanceManager(cfg *RouterConfig) *InstanceManager {
 
 // GetInstance returns the instance for a model, spawning it if necessary
 func (im *InstanceManager) GetInstance(ctx context.Context, modelName string) (*Instance, error) {
+	// Try primary model
+	inst, err := im.tryGetInstance(ctx, modelName)
+	if err == nil {
+		return inst, nil
+	}
+
+	// Try fallbacks
+	modelCfg, exists := im.cfg.Models[modelName]
+	if !exists || len(modelCfg.Fallback) == 0 {
+		return nil, err
+	}
+
+	for _, fallbackName := range modelCfg.Fallback {
+		fmt.Printf("Using fallback model %s instead of %s\n", fallbackName, modelName)
+		inst, err = im.tryGetInstance(ctx, fallbackName)
+		if err == nil {
+			return inst, nil
+		}
+	}
+
+	return nil, err
+}
+
+func (im *InstanceManager) tryGetInstance(ctx context.Context, modelName string) (*Instance, error) {
 	im.mu.Lock()
 	instance, exists := im.instances[modelName]
 	if exists && instance.Healthy {
@@ -56,7 +80,7 @@ func (im *InstanceManager) GetInstance(ctx context.Context, modelName string) (*
 			// Try to free up memory by killing idle instances (no active sessions)
 			im.evictIdleInstances()
 			if !im.hasEnoughMemory(modelCfg.Path) {
-				return nil, fmt.Errorf("not enough memory to load model %s. A model is actively in use or no idle models can be unloaded", modelName)
+				return nil, fmt.Errorf("not enough memory to load model %s", modelName)
 			}
 		}
 	}
