@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -61,6 +63,7 @@ func main() {
 	startOptions = append(startOptions,
 		huh.NewOption("✨ Create New Setup (Interactive Wizard)", "new"),
 		huh.NewOption("🚀 Start Multi-Model Router", "router"),
+		huh.NewOption("⚙️  Create Router Config File", "router-config"),
 		huh.NewOption("❌ Exit", "exit"),
 	)
 
@@ -77,6 +80,11 @@ func main() {
 
 	if startAction == "router" {
 		startRouterMode()
+		return
+	}
+
+	if startAction == "router-config" {
+		createRouterConfig()
 		return
 	}
 
@@ -138,6 +146,7 @@ func main() {
 				Title("Setup Profile Name:").
 				Placeholder("e.g. daily-coding, quiet-agent, heavy-throughput").
 				Value(&profileName).
+				WithWidth(60).
 				Run()
 
 			if strings.TrimSpace(profileName) != "" {
@@ -353,6 +362,7 @@ func startRouterMode() {
 	}
 
 	fmt.Println(infoStyle.Render("🚀 Starting Multi-Model Router..."))
+	fmt.Printf("   Host:        %s\n", cfg.Host)
 	fmt.Printf("   Port:        %d\n", cfg.Port)
 	fmt.Printf("   Models:      %d\n", len(cfg.Models))
 	fmt.Printf("   Idle Timeout: %d minutes\n", cfg.IdleTimeoutMin)
@@ -371,6 +381,171 @@ func startRouterMode() {
 		fmt.Println(warnStyle.Render(fmt.Sprintf("Router error: %v", err)))
 		return
 	}
+}
+
+func createRouterConfig() {
+	fmt.Println(titleStyle.Render(" Router Config Creator "))
+	fmt.Println("Create a router config file that defines multiple models with one API endpoint.")
+	fmt.Println()
+
+	// Base router settings
+	var host string = "127.0.0.1"
+	var portStr string = "8000"
+	var idleTimeoutStr string = "10"
+	var memoryReserveStr string = "10"
+
+	_ = huh.NewForm(huh.NewGroup(
+		huh.NewInput().Title("Host (leave blank for localhost)").Value(&host),
+		huh.NewInput().Title("Port").Value(&portStr),
+		huh.NewInput().Title("Idle timeout (minutes)").Value(&idleTimeoutStr),
+		huh.NewInput().Title("Memory reserve (% for OS)").Value(&memoryReserveStr),
+	)).Run()
+
+	if strings.TrimSpace(host) == "" {
+		host = "127.0.0.1"
+	}
+
+	port, _ := strconv.Atoi(portStr)
+	if port == 0 {
+		port = 8000
+	}
+	idleTimeout, _ := strconv.Atoi(idleTimeoutStr)
+	if idleTimeout == 0 {
+		idleTimeout = 10
+	}
+	memReserve, _ := strconv.Atoi(memoryReserveStr)
+
+	// Model configuration loop
+	models := make(map[string]*router.ModelConfig)
+
+	for {
+		var modelName string
+		_ = huh.NewInput().
+			Title("Model name (API identifier, e.g. gpt-4o-mini)").
+			Value(&modelName).
+			Run()
+		modelName = strings.TrimSpace(modelName)
+
+		if modelName == "" {
+			break
+		}
+
+		// Engine selection
+		available := engine.DetectAvailable()
+		var engineOptions []huh.Option[string]
+		for _, eng := range available {
+			_, binPath := eng.IsInstalled()
+			label := fmt.Sprintf("✅ %s (%s)", eng.Name(), binPath)
+			engineOptions = append(engineOptions, huh.NewOption(label, eng.ID()))
+		}
+
+		var selectedEngineID string
+		_ = huh.NewSelect[string]().
+			Title("Engine for this model").
+			Options(engineOptions...).
+			Value(&selectedEngineID).
+			Run()
+
+		eng, _ := engine.Get(selectedEngineID)
+
+		// Model path
+		var modelPath string
+		modelsList, _ := eng.DiscoverModels()
+		if len(modelsList) > 0 {
+			var modelOptions []huh.Option[string]
+			for _, m := range modelsList {
+				modelOptions = append(modelOptions, huh.NewOption(m.DisplayName, m.Path))
+			}
+			modelOptions = append(modelOptions, huh.NewOption("➕ Custom path", "custom"))
+
+			_ = huh.NewSelect[string]().
+				Title("Model path").
+				Options(modelOptions...).
+				Value(&modelPath).
+				Run()
+
+			if modelPath == "custom" {
+				_ = huh.NewInput().
+					Title("Enter model path").
+					Value(&modelPath).
+					Run()
+			}
+		} else {
+			_ = huh.NewInput().
+				Title("Model path").
+				Value(&modelPath).
+				Run()
+		}
+
+		// Thermal profile
+		var thermalProfile string = "quiet"
+		var thermalOptions []huh.Option[string]
+		for _, p := range osutil.GetAllThermalProfiles() {
+			thermalOptions = append(thermalOptions, huh.NewOption(p.Description, p.Name))
+		}
+		_ = huh.NewSelect[string]().
+			Title("Thermal profile").
+			Options(thermalOptions...).
+			Value(&thermalProfile).
+			Run()
+
+		models[modelName] = &router.ModelConfig{
+			Engine:         selectedEngineID,
+			Path:           modelPath,
+			ContextSize:    8192,
+			ThermalProfile: thermalProfile,
+		}
+
+		fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Added model '%s' -> %s", modelName, selectedEngineID)))
+
+		var addAnother bool
+		_ = huh.NewConfirm().
+			Title("Add another model?").
+			Value(&addAnother).
+			Run()
+		if !addAnother {
+			break
+		}
+	}
+
+	if len(models) == 0 {
+		fmt.Println(warnStyle.Render("No models added. Router config not created."))
+		return
+	}
+
+	// Save config
+	var savePath string = "~/.lowkey/router.json"
+	_ = huh.NewInput().
+		Title("Save config to").
+		Value(&savePath).
+		Run()
+
+	if strings.HasPrefix(savePath, "~/") {
+		home, _ := os.UserHomeDir()
+		savePath = filepath.Join(home, savePath[2:])
+	}
+
+	cfg := router.RouterConfig{
+		Host:             host,
+		Port:             port,
+		MemoryReservePct: memReserve,
+		IdleTimeoutMin:   idleTimeout,
+		Models:           models,
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to serialize config: %v", err)))
+		return
+	}
+
+	if err := os.WriteFile(savePath, data, 0644); err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to write config: %v", err)))
+		return
+	}
+
+	fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Router config saved to: %s", savePath)))
+	fmt.Println(subtleStyle.Render("Run lowkey and choose 'Start Multi-Model Router' to use it."))
 }
 
 func launchEngine(throttler osutil.OSThrottler, eng engine.Engine, cfg *engine.LaunchConfig) {
