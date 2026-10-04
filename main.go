@@ -15,6 +15,7 @@ import (
 	"lowkey/pkg/engine"
 	"lowkey/pkg/osutil"
 	"lowkey/pkg/profile"
+	"lowkey/pkg/router"
 	"lowkey/pkg/ui"
 )
 
@@ -59,6 +60,7 @@ func main() {
 	}
 	startOptions = append(startOptions,
 		huh.NewOption("✨ Create New Setup (Interactive Wizard)", "new"),
+		huh.NewOption("🚀 Start Multi-Model Router", "router"),
 		huh.NewOption("❌ Exit", "exit"),
 	)
 
@@ -70,6 +72,11 @@ func main() {
 
 	if err != nil || startAction == "exit" {
 		fmt.Println("Aborted.")
+		return
+	}
+
+	if startAction == "router" {
+		startRouterMode()
 		return
 	}
 
@@ -266,6 +273,15 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 				Title("Context Window Size (Tokens):").
 				Value(&contextSizeStr),
 		)
+		speculationDepthStr = "0"
+		if selectedEngine.ID() == "llamacpp" && engine.IsMTPModel(selectedModel) {
+			speculationDepthStr = "2"
+			formFields = append(formFields,
+				huh.NewInput().
+					Title("MTP Speculation Depth (draft tokens, 0 = off):").
+					Value(&speculationDepthStr),
+			)
+		}
 	}
 
 	err = huh.NewForm(huh.NewGroup(formFields...)).Run()
@@ -308,6 +324,53 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 	}
 
 	return cfg, selectedEngine, nil
+}
+
+func startRouterMode() {
+	// Ask for config file path
+	var configPath string
+	_ = huh.NewInput().
+		Title("Router Config File Path:").
+		Placeholder("/path/to/router.json").
+		Value(&configPath).
+		Run()
+
+	if strings.TrimSpace(configPath) == "" {
+		fmt.Println("Aborted: no config file path provided.")
+		return
+	}
+
+	cfg, err := router.LoadRouterConfig(configPath)
+	if err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to load router config: %v", err)))
+		return
+	}
+
+	r, err := router.NewRouter(cfg)
+	if err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to create router: %v", err)))
+		return
+	}
+
+	fmt.Println(infoStyle.Render("🚀 Starting Multi-Model Router..."))
+	fmt.Printf("   Port:        %d\n", cfg.Port)
+	fmt.Printf("   Models:      %d\n", len(cfg.Models))
+	fmt.Printf("   Idle Timeout: %d minutes\n", cfg.IdleTimeoutMin)
+
+	// Graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		fmt.Println("\n🛑 Shutting down router...")
+		r.Shutdown()
+	}()
+
+	if err := r.Run(); err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Router error: %v", err)))
+		return
+	}
 }
 
 func launchEngine(throttler osutil.OSThrottler, eng engine.Engine, cfg *engine.LaunchConfig) {

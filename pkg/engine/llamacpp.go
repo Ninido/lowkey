@@ -109,6 +109,11 @@ func (l *LlamaCppEngine) BuildCommand(ctx context.Context, cfg *LaunchConfig) (*
 		args = append(args, "-c", strconv.Itoa(cfg.ContextSize))
 	}
 
+	// MTP GGUFs only speculate when asked; explicit extra_flags win.
+	if _, set := cfg.ExtraFlags["spec-type"]; !set && cfg.SpeculationDepth > 0 && IsMTPModel(cfg.ModelPath) {
+		args = append(args, "--spec-type", "draft-mtp", "--spec-draft-n-max", strconv.Itoa(cfg.SpeculationDepth))
+	}
+
 	for k, v := range cfg.ExtraFlags {
 		if v == "" {
 			args = append(args, "--"+k)
@@ -118,6 +123,12 @@ func (l *LlamaCppEngine) BuildCommand(ctx context.Context, cfg *LaunchConfig) (*
 	}
 
 	return exec.CommandContext(ctx, bin, args...), nil
+}
+
+// IsMTPModel reports whether a GGUF filename marks it as carrying MTP heads.
+// ponytail: filename heuristic, read GGUF metadata if names prove unreliable.
+func IsMTPModel(path string) bool {
+	return strings.Contains(strings.ToLower(filepath.Base(path)), "mtp")
 }
 
 func formatSize(bytes int64) string {
