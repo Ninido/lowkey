@@ -122,7 +122,7 @@ jobs:
 
           echo "Uploading release assets with clobber..."
           # Find only files under dist/ to ensure directories are never passed to gh release upload
-          find dist -maxdepth 1 -type f -exec gh release upload "${TAG}" {} + --clobber
+          find dist -maxdepth 1 -type f -exec gh release upload "${TAG}" --clobber {} +
 
       - name: Update Homebrew Tap Formula
         if: env.HOMEBREW_TAP_REPO != '' && env.HOMEBREW_PAT != ''
