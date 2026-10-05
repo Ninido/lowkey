@@ -44,6 +44,10 @@ func RenderSplash(detectedEnginesCount int, savedProfilesCount int, onBattery bo
 		width = w
 	}
 
+	return renderSplash(width, detectedEnginesCount, savedProfilesCount, onBattery)
+}
+
+func renderSplash(width, detectedEnginesCount, savedProfilesCount int, onBattery bool) string {
 	// 1. Render gradient ASCII logo
 	var logoLines []string
 	if width < 60 {
@@ -139,7 +143,8 @@ func RenderSplash(detectedEnginesCount int, savedProfilesCount int, onBattery bo
 		Padding(1, 2).
 		MarginBottom(1)
 
-	return cardStyle.Render(content)
+	// Leave the final terminal column free so the next render cannot autowrap.
+	return cardStyle.Width(max(1, width-cardStyle.GetHorizontalBorderSize()-1)).Render(content)
 }
 
 // renderGradientLine renders a string with an interpolating color gradient across its characters

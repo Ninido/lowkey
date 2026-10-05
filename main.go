@@ -52,7 +52,7 @@ func main() {
 	availableEngines := engine.DetectAvailable()
 
 	// Pretty Splash Screen
-	fmt.Print(ui.RenderSplash(len(availableEngines), len(savedProfiles), throttler.IsOnBattery()))
+	fmt.Println(ui.RenderSplash(len(availableEngines), len(savedProfiles), throttler.IsOnBattery()))
 
 	var startAction string
 	var startOptions []huh.Option[string]
@@ -67,10 +67,10 @@ func main() {
 		huh.NewOption("❌ Exit", "exit"),
 	)
 
-	err := huh.NewSelect[string]().
+	err := ui.NewForm(huh.NewSelect[string]().
 		Title("How would you like to start?").
 		Options(startOptions...).
-		Value(&startAction).
+		Value(&startAction)).
 		Run()
 
 	if err != nil || startAction == "exit" {
@@ -99,10 +99,10 @@ func main() {
 			profileOptions = append(profileOptions, huh.NewOption(desc, p.Name))
 		}
 
-		err = huh.NewSelect[string]().
+		err = ui.NewForm(huh.NewSelect[string]().
 			Title("Choose a saved setup to load:").
 			Options(profileOptions...).
-			Value(&profileName).
+			Value(&profileName)).
 			Run()
 		if err != nil {
 			fmt.Println("Aborted.")
@@ -135,18 +135,17 @@ func main() {
 
 		// Ask if user wants to save this setup
 		var wantSave bool
-		_ = huh.NewConfirm().
+		_ = ui.NewForm(huh.NewConfirm().
 			Title("Would you like to save this setup for future one-click launches?").
-			Value(&wantSave).
+			Value(&wantSave)).
 			Run()
 
 		if wantSave {
 			var profileName string
-			_ = huh.NewInput().
+			_ = ui.NewForm(huh.NewInput().
 				Title("Setup Profile Name:").
 				Placeholder("e.g. daily-coding, quiet-agent, heavy-throughput").
-				Value(&profileName).
-				WithWidth(60).
+				Value(&profileName)).
 				Run()
 
 			if strings.TrimSpace(profileName) != "" {
@@ -191,11 +190,11 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 	}
 
 	var selectedEngineID string
-	err := huh.NewSelect[string]().
+	err := ui.NewForm(huh.NewSelect[string]().
 		Title("Select Inference Engine:").
 		Description("Green checkmarks are auto-detected on your system").
 		Options(engineOptions...).
-		Value(&selectedEngineID).
+		Value(&selectedEngineID)).
 		Run()
 	if err != nil {
 		return nil, nil, err
@@ -212,21 +211,21 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 	modelOptions = append(modelOptions, huh.NewOption("➕ Custom Model Path / ID...", "custom"))
 
 	var selectedModel string
-	err = huh.NewSelect[string]().
+	err = ui.NewForm(huh.NewSelect[string]().
 		Title(fmt.Sprintf("Select Model for %s:", selectedEngine.Name())).
 		Description(fmt.Sprintf("Discovered %d models in standard directories", len(models))).
 		Options(modelOptions...).
-		Value(&selectedModel).
+		Value(&selectedModel)).
 		Run()
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if selectedModel == "custom" {
-		err = huh.NewInput().
+		err = ui.NewForm(huh.NewInput().
 			Title("Enter custom Model Path or Identifier:").
 			Placeholder("/path/to/model or huggingface/repo").
-			Value(&selectedModel).
+			Value(&selectedModel)).
 			Run()
 		if err != nil {
 			return nil, nil, err
@@ -293,7 +292,7 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 		}
 	}
 
-	err = huh.NewForm(huh.NewGroup(formFields...)).Run()
+	err = ui.NewForm(formFields...).WithShowHelp(true).Run()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -305,11 +304,11 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 		thermalOptions = append(thermalOptions, huh.NewOption(p.Description, p.Name))
 	}
 
-	err = huh.NewSelect[string]().
+	err = ui.NewForm(huh.NewSelect[string]().
 		Title("Thermal & Power Throttling Profile:").
 		Description("Controls background duty-cycle pausing and OS scheduling priority").
 		Options(thermalOptions...).
-		Value(&selectedThermal).
+		Value(&selectedThermal)).
 		Run()
 	if err != nil {
 		return nil, nil, err
@@ -379,9 +378,9 @@ func rememberRouterConfigPath(path string) error {
 
 func startRouterMode() {
 	configPath := lastRouterConfigPath()
-	if err := huh.NewInput().
+	if err := ui.NewForm(huh.NewInput().
 		Title("Router Config File Path:").
-		Value(&configPath).
+		Value(&configPath)).
 		Run(); err != nil {
 		fmt.Println("Aborted.")
 		return
@@ -441,12 +440,12 @@ func createRouterConfig() {
 	var idleTimeoutStr string = "10"
 	var memoryReserveStr string = "10"
 
-	_ = huh.NewForm(huh.NewGroup(
+	_ = ui.NewForm(
 		huh.NewInput().Title("Host (leave blank for localhost)").Value(&host),
 		huh.NewInput().Title("Port").Value(&portStr),
 		huh.NewInput().Title("Idle timeout (minutes)").Value(&idleTimeoutStr),
 		huh.NewInput().Title("Memory reserve (% for OS)").Value(&memoryReserveStr),
-	)).Run()
+	).WithShowHelp(true).Run()
 
 	if strings.TrimSpace(host) == "" {
 		host = "127.0.0.1"
@@ -467,9 +466,9 @@ func createRouterConfig() {
 
 	for {
 		var modelName string
-		_ = huh.NewInput().
+		_ = ui.NewForm(huh.NewInput().
 			Title("Model name (API identifier, e.g. gpt-4o-mini)").
-			Value(&modelName).
+			Value(&modelName)).
 			Run()
 		modelName = strings.TrimSpace(modelName)
 
@@ -487,10 +486,10 @@ func createRouterConfig() {
 		}
 
 		var selectedEngineID string
-		_ = huh.NewSelect[string]().
+		_ = ui.NewForm(huh.NewSelect[string]().
 			Title("Engine for this model").
 			Options(engineOptions...).
-			Value(&selectedEngineID).
+			Value(&selectedEngineID)).
 			Run()
 
 		eng, _ := engine.Get(selectedEngineID)
@@ -505,22 +504,22 @@ func createRouterConfig() {
 			}
 			modelOptions = append(modelOptions, huh.NewOption("➕ Custom path", "custom"))
 
-			_ = huh.NewSelect[string]().
+			_ = ui.NewForm(huh.NewSelect[string]().
 				Title("Model path").
 				Options(modelOptions...).
-				Value(&modelPath).
+				Value(&modelPath)).
 				Run()
 
 			if modelPath == "custom" {
-				_ = huh.NewInput().
+				_ = ui.NewForm(huh.NewInput().
 					Title("Enter model path").
-					Value(&modelPath).
+					Value(&modelPath)).
 					Run()
 			}
 		} else {
-			_ = huh.NewInput().
+			_ = ui.NewForm(huh.NewInput().
 				Title("Model path").
-				Value(&modelPath).
+				Value(&modelPath)).
 				Run()
 		}
 
@@ -530,10 +529,10 @@ func createRouterConfig() {
 		for _, p := range osutil.GetAllThermalProfiles() {
 			thermalOptions = append(thermalOptions, huh.NewOption(p.Description, p.Name))
 		}
-		_ = huh.NewSelect[string]().
+		_ = ui.NewForm(huh.NewSelect[string]().
 			Title("Thermal profile").
 			Options(thermalOptions...).
-			Value(&thermalProfile).
+			Value(&thermalProfile)).
 			Run()
 
 		models[modelName] = &router.ModelConfig{
@@ -546,9 +545,9 @@ func createRouterConfig() {
 		fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Added model '%s' -> %s", modelName, selectedEngineID)))
 
 		var addAnother bool
-		_ = huh.NewConfirm().
+		_ = ui.NewForm(huh.NewConfirm().
 			Title("Add another model?").
-			Value(&addAnother).
+			Value(&addAnother)).
 			Run()
 		if !addAnother {
 			break
@@ -562,9 +561,9 @@ func createRouterConfig() {
 
 	// Save config
 	var savePath string = "~/.lowkey/router.json"
-	_ = huh.NewInput().
+	_ = ui.NewForm(huh.NewInput().
 		Title("Save config to").
-		Value(&savePath).
+		Value(&savePath)).
 		Run()
 
 	savePath, err := resolveRouterConfigPath(savePath)
