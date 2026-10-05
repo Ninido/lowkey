@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -13,25 +15,32 @@ import (
 
 // Instance represents a running inference engine process
 type Instance struct {
-	ModelName    string
-	Port         int
-	Process      *exec.Cmd
-	Engine       engine.Engine
-	LastUsed     time.Time
-	Healthy      bool
+	ModelName      string
+	Port           int
+	Process        *exec.Cmd
+	Engine         engine.Engine
+	LastUsed       time.Time
+	Healthy        bool
 	ActiveSessions int
 }
 
 // InstanceManager manages the lifecycle of inference engine instances
 type InstanceManager struct {
-	mu        sync.RWMutex
+	mu sync.RWMutex
+	// ponytail: serialize model loads; per-model locks if parallel startup matters.
+	spawnMu   sync.Mutex
+	ctx       context.Context
+	cancel    context.CancelFunc
 	instances map[string]*Instance
 	cfg       *RouterConfig
 }
 
 // NewInstanceManager creates a new instance manager
 func NewInstanceManager(cfg *RouterConfig) *InstanceManager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &InstanceManager{
+		ctx:       ctx,
+		cancel:    cancel,
 		instances: make(map[string]*Instance),
 		cfg:       cfg,
 	}
@@ -63,6 +72,11 @@ func (im *InstanceManager) GetInstance(ctx context.Context, modelName string) (*
 }
 
 func (im *InstanceManager) tryGetInstance(ctx context.Context, modelName string) (*Instance, error) {
+	im.spawnMu.Lock()
+	defer im.spawnMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	im.mu.Lock()
 	instance, exists := im.instances[modelName]
 	if exists && instance.Healthy {
@@ -124,7 +138,7 @@ func (im *InstanceManager) hasEnoughMemory(modelPath string) bool {
 
 	// Keep reserve_pct free for the OS
 	reserve := int64(im.cfg.MemoryReservePct) * available / 100
-	return needed <= available - reserve
+	return needed <= available-reserve
 }
 
 // evictIdleInstances kills the least recently used idle instances to free memory
@@ -184,23 +198,35 @@ func (im *InstanceManager) spawnInstance(ctx context.Context, modelName string) 
 
 	// Build command
 	launchCfg := &engine.LaunchConfig{
-		EngineID:     eng.ID(),
-		ModelID:      modelName,
-		ModelPath:    modelCfg.Path,
-		Port:         port,
-		Host:         "127.0.0.1",
-		ContextSize:  modelCfg.ContextSize,
+		EngineID:       eng.ID(),
+		ModelID:        modelName,
+		ModelPath:      modelCfg.Path,
+		Port:           port,
+		Host:           "127.0.0.1",
+		ContextSize:    modelCfg.ContextSize,
 		ThermalProfile: modelCfg.ThermalProfile,
 	}
 
-	cmd, err := eng.BuildCommand(ctx, launchCfg)
+	// A shared server must outlive the request that first starts it.
+	cmd, err := eng.BuildCommand(im.ctx, launchCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build command for model %s: %w", modelName, err)
 	}
 
-	// Start process
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start process for model %s: %w", modelName, err)
+	}
+
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	url := fmt.Sprintf("http://127.0.0.1:%d/v1/models", port)
+	if err := waitForReady(readyCtx, url, exited); err != nil {
+		_ = cmd.Process.Kill()
+		return nil, fmt.Errorf("model %s failed to become ready: %w (see backend logs)", modelName, err)
 	}
 
 	instance := &Instance{
@@ -213,10 +239,58 @@ func (im *InstanceManager) spawnInstance(ctx context.Context, modelName string) 
 	}
 
 	im.mu.Lock()
+	if err := im.ctx.Err(); err != nil {
+		im.mu.Unlock()
+		_ = cmd.Process.Kill()
+		return nil, err
+	}
 	im.instances[modelName] = instance
 	im.mu.Unlock()
 
+	go func() {
+		<-exited
+		im.mu.Lock()
+		defer im.mu.Unlock()
+		instance.Healthy = false
+		if im.instances[modelName] == instance {
+			delete(im.instances, modelName)
+		}
+	}()
 	return instance, nil
+}
+
+// Wait for a successful API response, not just an open port during model loading.
+func waitForReady(ctx context.Context, url string, exited <-chan error) error {
+	client := &http.Client{Timeout: time.Second}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("backend exited: %v", err)
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		select {
+		case err := <-exited:
+			return fmt.Errorf("backend exited: %v", err)
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (im *InstanceManager) killInstance(modelName string) {
@@ -238,7 +312,7 @@ func (im *InstanceManager) KillIdleInstances(timeout time.Duration) {
 	defer im.mu.Unlock()
 
 	for modelName, instance := range im.instances {
-		if now.Sub(instance.LastUsed) > timeout {
+		if instance.ActiveSessions == 0 && now.Sub(instance.LastUsed) > timeout {
 			if instance.Process != nil && instance.Process.Process != nil {
 				_ = instance.Process.Process.Kill()
 			}
@@ -249,6 +323,7 @@ func (im *InstanceManager) KillIdleInstances(timeout time.Duration) {
 
 // Shutdown kills all instances
 func (im *InstanceManager) Shutdown() {
+	im.cancel()
 	im.mu.Lock()
 	defer im.mu.Unlock()
 

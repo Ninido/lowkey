@@ -335,20 +335,63 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 	return cfg, selectedEngine, nil
 }
 
-func startRouterMode() {
-	// Ask for config file path
-	var configPath string
-	_ = huh.NewInput().
-		Title("Router Config File Path:").
-		Placeholder("/path/to/router.json").
-		Value(&configPath).
-		Run()
+func lastRouterConfigPath() string {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		data, err := os.ReadFile(filepath.Join(home, ".lowkey", "last-router-config"))
+		if err == nil && strings.TrimSpace(string(data)) != "" {
+			return strings.TrimSpace(string(data))
+		}
+	}
+	return "~/.lowkey/router.json"
+}
 
-	if strings.TrimSpace(configPath) == "" {
-		fmt.Println("Aborted: no config file path provided.")
+func resolveRouterConfigPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("no config file path provided")
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, path[2:])
+	}
+	return filepath.Abs(path)
+}
+
+func rememberRouterConfigPath(path string) error {
+	path, err := resolveRouterConfigPath(path)
+	if err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".lowkey")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "last-router-config"), []byte(path+"\n"), 0600)
+}
+
+func startRouterMode() {
+	configPath := lastRouterConfigPath()
+	if err := huh.NewInput().
+		Title("Router Config File Path:").
+		Value(&configPath).
+		Run(); err != nil {
+		fmt.Println("Aborted.")
 		return
 	}
 
+	configPath, err := resolveRouterConfigPath(configPath)
+	if err != nil {
+		fmt.Println(warnStyle.Render(err.Error()))
+		return
+	}
 	cfg, err := router.LoadRouterConfig(configPath)
 	if err != nil {
 		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to load router config: %v", err)))
@@ -359,6 +402,10 @@ func startRouterMode() {
 	if err != nil {
 		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to create router: %v", err)))
 		return
+	}
+
+	if err := rememberRouterConfigPath(configPath); err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Could not remember router config path: %v", err)))
 	}
 
 	fmt.Println(infoStyle.Render("🚀 Starting Multi-Model Router..."))
@@ -520,9 +567,10 @@ func createRouterConfig() {
 		Value(&savePath).
 		Run()
 
-	if strings.HasPrefix(savePath, "~/") {
-		home, _ := os.UserHomeDir()
-		savePath = filepath.Join(home, savePath[2:])
+	savePath, err := resolveRouterConfigPath(savePath)
+	if err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Invalid config path: %v", err)))
+		return
 	}
 
 	cfg := router.RouterConfig{
@@ -544,6 +592,9 @@ func createRouterConfig() {
 		return
 	}
 
+	if err := rememberRouterConfigPath(savePath); err != nil {
+		fmt.Println(warnStyle.Render(fmt.Sprintf("Could not remember router config path: %v", err)))
+	}
 	fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Router config saved to: %s", savePath)))
 	fmt.Println(subtleStyle.Render("Run lowkey and choose 'Start Multi-Model Router' to use it."))
 }
