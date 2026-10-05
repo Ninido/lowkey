@@ -11,6 +11,8 @@ Create a router config file and start the router:
 lowkey  # Choose "Start Multi-Model Router" and provide your config path
 ```
 
+The config path prompt is prefilled with the last successfully loaded or newly created config, so press Enter to reuse it. On first use it defaults to `~/.lowkey/router.json`. LowKey stores the remembered path in `~/.lowkey/last-router-config`.
+
 Or create a config interactively:
 
 ```bash

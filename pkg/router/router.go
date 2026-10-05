@@ -14,10 +14,10 @@ import (
 
 // RouterConfig holds the router configuration
 type RouterConfig struct {
-	Host             string           `json:"host"`
-	Port             int              `json:"port"`
-	MemoryReservePct int              `json:"memory_reserve_pct"`
-	IdleTimeoutMin   int              `json:"idle_timeout_min"`
+	Host             string                  `json:"host"`
+	Port             int                     `json:"port"`
+	MemoryReservePct int                     `json:"memory_reserve_pct"`
+	IdleTimeoutMin   int                     `json:"idle_timeout_min"`
 	Models           map[string]*ModelConfig `json:"models"`
 }
 
@@ -32,11 +32,11 @@ type ModelConfig struct {
 
 // Router is the main router server
 type Router struct {
-	cfg          *RouterConfig
-	instanceMgr  *InstanceManager
-	clients      map[string]*http.Client
-	clientsMu    sync.RWMutex
-	idleTicker   *time.Ticker
+	cfg         *RouterConfig
+	instanceMgr *InstanceManager
+	clients     map[string]*http.Client
+	clientsMu   sync.RWMutex
+	idleTicker  *time.Ticker
 }
 
 // NewRouter creates a new router
@@ -106,7 +106,7 @@ func (r *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request)
 		http.Error(w, fmt.Sprintf("failed to get instance for model %s: %v", modelName, err), http.StatusServiceUnavailable)
 		return
 	}
-	defer r.instanceMgr.EndSession(modelName)
+	defer r.instanceMgr.EndSession(instance.ModelName)
 
 	r.proxyRequest(w, req, instance, body)
 }
@@ -134,7 +134,7 @@ func (r *Router) handleCompletions(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, fmt.Sprintf("failed to get instance for model %s: %v", modelName, err), http.StatusServiceUnavailable)
 		return
 	}
-	defer r.instanceMgr.EndSession(modelName)
+	defer r.instanceMgr.EndSession(instance.ModelName)
 
 	r.proxyRequest(w, req, instance, body)
 }
@@ -143,9 +143,9 @@ func (r *Router) handleModels(w http.ResponseWriter, req *http.Request) {
 	models := make([]map[string]interface{}, 0, len(r.cfg.Models))
 	for name := range r.cfg.Models {
 		models = append(models, map[string]interface{}{
-			"id":      name,
-			"object":  "model",
-			"created": time.Now().Unix(),
+			"id":       name,
+			"object":   "model",
+			"created":  time.Now().Unix(),
 			"owned_by": "lowkey",
 		})
 	}
@@ -165,7 +165,7 @@ func (r *Router) handleHealth(w http.ResponseWriter, req *http.Request) {
 func (r *Router) proxyRequest(w http.ResponseWriter, req *http.Request, instance *Instance, body []byte) {
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", instance.Port, req.URL.Path)
 
-	proxyReq, err := http.NewRequest(req.Method, url, nil)
+	proxyReq, err := http.NewRequestWithContext(req.Context(), req.Method, url, nil)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create proxy request: %v", err), http.StatusInternalServerError)
 		return
