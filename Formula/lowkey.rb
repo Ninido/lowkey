@@ -1,7 +1,7 @@
 class Lowkey < Formula
   desc "Silent, cool, and battery-friendly local LLM launcher"
   homepage "https://github.com/ninido/lowkey"
-  version "0.4.1"
+  version "0.4.2"
   license "MIT"
 
   on_macos do

@@ -3,10 +3,12 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestRenderSplash(t *testing.T) {
-	out := RenderSplash(4, 2, false)
+	out := RenderSplash(120, 4, 2, false)
 	if !strings.Contains(out, "THERMAL ORCHESTRATOR") {
 		t.Errorf("expected splash to contain 'THERMAL ORCHESTRATOR', got: %s", out)
 	}
@@ -21,12 +23,24 @@ func TestRenderSplash(t *testing.T) {
 	}
 
 	// Test battery state
-	batOut := RenderSplash(0, 0, true)
+	batOut := RenderSplash(120, 0, 0, true)
 	if !strings.Contains(batOut, "Battery Active") {
 		t.Errorf("expected splash to contain 'Battery Active', got: %s", batOut)
 	}
 	if !strings.Contains(batOut, "0 Engines Detected") {
 		t.Errorf("expected splash to contain '0 Engines Detected', got: %s", batOut)
+	}
+}
+
+func TestSplashFitsTerminal(t *testing.T) {
+	for _, width := range []int{30, 59, 60, 80, 120, 160, 200} {
+		out := RenderSplash(width, 4, 5, true)
+		if got := lipgloss.Width(out); got >= width {
+			t.Errorf("splash width %d exceeds safe width for %d-column terminal", got, width)
+		}
+		if !strings.Contains(out, "LOWKEY") && width < 60 && !strings.Contains(out, "|_____") {
+			t.Errorf("compact logo missing at width %d", width)
+		}
 	}
 }
 

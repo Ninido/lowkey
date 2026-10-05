@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -70,17 +74,31 @@ func (r *Router) Run() error {
 	mux.HandleFunc("/v1/models", r.handleModels)
 	mux.HandleFunc("/health", r.handleHealth)
 
-	// Start idle instance reaper
-	go r.reapIdleInstances()
+	addr := net.JoinHostPort(r.cfg.Host, strconv.Itoa(r.cfg.Port))
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
 
-	addr := fmt.Sprintf("%s:%d", r.cfg.Host, r.cfg.Port)
-	log.Printf("Router listening on %s", addr)
+	// Only announce readiness after the port is successfully bound.
+	go r.reapIdleInstances()
+	fmt.Print(r.startupSummary(addr))
 	if r.cfg.Host != "127.0.0.1" && r.cfg.Host != "localhost" {
 		log.Printf("WARNING: Router is accessible from other machines (host=%s). Set host to 127.0.0.1 for localhost-only.", r.cfg.Host)
 	}
-	log.Printf("Available models: %v", r.modelNames())
 
-	return http.ListenAndServe(addr, mux)
+	return http.Serve(listener, mux)
+}
+
+func (r *Router) startupSummary(addr string) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "\nLOWKEY · Multi-Model Router\n\n  Status       Listening\n  API          http://%s/v1\n  Idle timeout %d minutes\n\n  Models (%d)\n", addr, r.cfg.IdleTimeoutMin, len(r.cfg.Models))
+	for _, name := range r.modelNames() {
+		fmt.Fprintf(&out, "    • %s\n", name)
+	}
+	out.WriteString("\n  Press Ctrl+C to stop.\n\n")
+	return out.String()
 }
 
 func (r *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request) {
@@ -234,6 +252,7 @@ func (r *Router) modelNames() []string {
 	for name := range r.cfg.Models {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

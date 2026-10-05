@@ -2,11 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/term"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
@@ -37,13 +36,15 @@ var (
 |_____|_____|_____|__|__|_____| |_|  `
 )
 
-// RenderSplash returns the stylized ASCII art, tagline, badges, and quick stats box.
-func RenderSplash(detectedEnginesCount int, savedProfilesCount int, onBattery bool) string {
-	width := 80
-	if w, _, err := term.GetSize(os.Stdout.Fd()); err == nil && w > 20 {
-		width = w
-	}
+// RenderTitle is the one-line header used when the splash does not fit.
+func RenderTitle(width int) string {
+	title := lipgloss.NewStyle().Bold(true).Foreground(c1).Render("LOWKEY") + " " +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#888899")).Render("thermal orchestrator & local LLM launcher")
+	return ansi.Truncate(title, max(1, width-1), "…")
+}
 
+// RenderSplash returns the stylized ASCII art, tagline, badges, and quick stats box sized for width.
+func RenderSplash(width, detectedEnginesCount, savedProfilesCount int, onBattery bool) string {
 	// 1. Render gradient ASCII logo
 	var logoLines []string
 	if width < 60 {
@@ -100,7 +101,7 @@ func RenderSplash(detectedEnginesCount int, savedProfilesCount int, onBattery bo
 		powerBadge = badgeStyle("#183040", "#38BDF8", "🔌 AC Connected")
 	}
 
-	qosBadge := badgeStyle("#1A2333", "#818CF8", "🛡 Background QoS")
+	qosBadge := badgeStyle("#1A2333", "#818CF8", "🔒 Background QoS")
 
 	badgesRow := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -136,10 +137,10 @@ func RenderSplash(detectedEnginesCount int, savedProfilesCount int, onBattery bo
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#7D56F4")).
-		Padding(1, 2).
-		MarginBottom(1)
+		Padding(1, 2)
 
-	return cardStyle.Render(content)
+	// Leave the final terminal column free so the next render cannot autowrap.
+	return cardStyle.Width(max(1, width-cardStyle.GetHorizontalBorderSize()-1)).Render(content)
 }
 
 // renderGradientLine renders a string with an interpolating color gradient across its characters
