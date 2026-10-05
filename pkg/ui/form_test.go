@@ -54,3 +54,34 @@ func TestProfileInputKeepsFormWidth(t *testing.T) {
 		t.Fatalf("typing did not reach the input: %q", name)
 	}
 }
+
+// The screen must fit the terminal at every size and keep the input row fixed while typing.
+func TestScreenFitsAndInputStaysPut(t *testing.T) {
+	s := &screen{splash: func(w int) string { return RenderSplash(w, 4, 5, true) }}
+	var name string
+	input := huh.NewInput().Title("Setup Profile Name:").Value(&name)
+	s.Update(runMsg{NewForm(input), make(chan error, 1)})
+	input.Focus()
+	row := func() int {
+		for i, l := range strings.Split(s.View(), "\n") {
+			if strings.Contains(l, "Setup Profile Name:") {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, sz := range [][2]int{{120, 40}, {30, 10}, {70, 30}, {200, 60}, {58, 25}, {120, 40}} {
+		s.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+		v := s.View()
+		if lipgloss.Height(v) > sz[1] || lipgloss.Width(v) >= sz[0] {
+			t.Fatalf("%dx%d: view is %dx%d", sz[0], sz[1], lipgloss.Width(v), lipgloss.Height(v))
+		}
+		want := row()
+		for range 80 {
+			s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+			if got := row(); got != want || lipgloss.Height(s.View()) != lipgloss.Height(v) {
+				t.Fatalf("%dx%d: input moved from row %d to %d while typing", sz[0], sz[1], want, got)
+			}
+		}
+	}
+}

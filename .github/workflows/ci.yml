@@ -41,6 +41,10 @@ jobs:
           go-version: '1.23'
           check-latest: true
 
+      - name: Run tests
+        if: matrix.os == 'linux' && matrix.arch == 'amd64'
+        run: go test -race ./...
+
       - name: Verify compilation for ${{ matrix.os }}/${{ matrix.arch }}
         run: |
           CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \

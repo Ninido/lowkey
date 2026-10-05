@@ -8,7 +8,7 @@ import (
 )
 
 func TestRenderSplash(t *testing.T) {
-	out := RenderSplash(4, 2, false)
+	out := RenderSplash(120, 4, 2, false)
 	if !strings.Contains(out, "THERMAL ORCHESTRATOR") {
 		t.Errorf("expected splash to contain 'THERMAL ORCHESTRATOR', got: %s", out)
 	}
@@ -23,7 +23,7 @@ func TestRenderSplash(t *testing.T) {
 	}
 
 	// Test battery state
-	batOut := RenderSplash(0, 0, true)
+	batOut := RenderSplash(120, 0, 0, true)
 	if !strings.Contains(batOut, "Battery Active") {
 		t.Errorf("expected splash to contain 'Battery Active', got: %s", batOut)
 	}
@@ -34,7 +34,7 @@ func TestRenderSplash(t *testing.T) {
 
 func TestSplashFitsTerminal(t *testing.T) {
 	for _, width := range []int{30, 59, 60, 80, 120, 160, 200} {
-		out := renderSplash(width, 4, 5, true)
+		out := RenderSplash(width, 4, 5, true)
 		if got := lipgloss.Width(out); got >= width {
 			t.Errorf("splash width %d exceeds safe width for %d-column terminal", got, width)
 		}

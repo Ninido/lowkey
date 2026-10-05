@@ -51,8 +51,12 @@ func main() {
 	savedProfiles, _ := profile.ListProfiles()
 	availableEngines := engine.DetectAvailable()
 
-	// Pretty Splash Screen
-	fmt.Println(ui.RenderSplash(len(availableEngines), len(savedProfiles), throttler.IsOnBattery()))
+	// One persistent screen for every interactive step; the splash re-renders on resize.
+	onBattery := throttler.IsOnBattery()
+	ui.Start(func(width int) string {
+		return ui.RenderSplash(width, len(availableEngines), len(savedProfiles), onBattery)
+	})
+	defer ui.Stop()
 
 	var startAction string
 	var startOptions []huh.Option[string]
@@ -63,18 +67,17 @@ func main() {
 	startOptions = append(startOptions,
 		huh.NewOption("✨ Create New Setup (Interactive Wizard)", "new"),
 		huh.NewOption("🚀 Start Multi-Model Router", "router"),
-		huh.NewOption("⚙️  Create Router Config File", "router-config"),
+		huh.NewOption("🔧 Create Router Config File", "router-config"),
 		huh.NewOption("❌ Exit", "exit"),
 	)
 
-	err := ui.NewForm(huh.NewSelect[string]().
+	err := ui.Run(ui.NewForm(huh.NewSelect[string]().
 		Title("How would you like to start?").
 		Options(startOptions...).
-		Value(&startAction)).
-		Run()
+		Value(&startAction)))
 
 	if err != nil || startAction == "exit" {
-		fmt.Println("Aborted.")
+		ui.Println("Aborted.")
 		return
 	}
 
@@ -99,35 +102,34 @@ func main() {
 			profileOptions = append(profileOptions, huh.NewOption(desc, p.Name))
 		}
 
-		err = ui.NewForm(huh.NewSelect[string]().
+		err = ui.Run(ui.NewForm(huh.NewSelect[string]().
 			Title("Choose a saved setup to load:").
 			Options(profileOptions...).
-			Value(&profileName)).
-			Run()
+			Value(&profileName)))
 		if err != nil {
-			fmt.Println("Aborted.")
+			ui.Println("Aborted.")
 			return
 		}
 
 		loadedProfile, err := profile.LoadProfile(profileName)
 		if err != nil {
-			fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to load profile: %v", err)))
+			ui.Println(warnStyle.Render(fmt.Sprintf("Failed to load profile: %v", err)))
 			return
 		}
 
 		activeConfig = loadedProfile.Config
 		selectedEngine, err = engine.Get(activeConfig.EngineID)
 		if err != nil {
-			fmt.Println(warnStyle.Render(fmt.Sprintf("Configured engine '%s' is not registered: %v", activeConfig.EngineID, err)))
+			ui.Println(warnStyle.Render(fmt.Sprintf("Configured engine '%s' is not registered: %v", activeConfig.EngineID, err)))
 			return
 		}
 
-		fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Loaded setup '%s' [%s]", loadedProfile.Name, selectedEngine.Name())))
+		ui.Println(infoStyle.Render(fmt.Sprintf("✔ Loaded setup '%s' [%s]", loadedProfile.Name, selectedEngine.Name())))
 	} else {
 		// New setup wizard
 		cfg, eng, err := runNewSetupWizard()
 		if err != nil {
-			fmt.Println("Wizard canceled:", err)
+			ui.Println("Wizard canceled:", err)
 			return
 		}
 		activeConfig = *cfg
@@ -135,18 +137,16 @@ func main() {
 
 		// Ask if user wants to save this setup
 		var wantSave bool
-		_ = ui.NewForm(huh.NewConfirm().
+		_ = ui.Run(ui.NewForm(huh.NewConfirm().
 			Title("Would you like to save this setup for future one-click launches?").
-			Value(&wantSave)).
-			Run()
+			Value(&wantSave)))
 
 		if wantSave {
 			var profileName string
-			_ = ui.NewForm(huh.NewInput().
+			_ = ui.Run(ui.NewForm(huh.NewInput().
 				Title("Setup Profile Name:").
 				Placeholder("e.g. daily-coding, quiet-agent, heavy-throughput").
-				Value(&profileName)).
-				Run()
+				Value(&profileName)))
 
 			if strings.TrimSpace(profileName) != "" {
 				p := profile.Profile{
@@ -155,15 +155,16 @@ func main() {
 				}
 				savedPath, err := profile.SaveProfile(p)
 				if err != nil {
-					fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to save profile: %v", err)))
+					ui.Println(warnStyle.Render(fmt.Sprintf("Failed to save profile: %v", err)))
 				} else {
-					fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Saved profile to: %s", savedPath)))
+					ui.Println(infoStyle.Render(fmt.Sprintf("✔ Saved profile to: %s", savedPath)))
 				}
 			}
 		}
 	}
 
 	// Launch engine with Throttler
+	ui.Stop()
 	launchEngine(throttler, selectedEngine, &activeConfig)
 }
 
@@ -184,18 +185,17 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 	// Add uninstalled engines as well with warning marker
 	for _, eng := range all {
 		if installed, _ := eng.IsInstalled(); !installed {
-			label := fmt.Sprintf("⚠️  %s (Not detected in PATH)", eng.Name())
+			label := fmt.Sprintf("⚪ %s (Not detected in PATH)", eng.Name())
 			engineOptions = append(engineOptions, huh.NewOption(label, eng.ID()))
 		}
 	}
 
 	var selectedEngineID string
-	err := ui.NewForm(huh.NewSelect[string]().
+	err := ui.Run(ui.NewForm(huh.NewSelect[string]().
 		Title("Select Inference Engine:").
 		Description("Green checkmarks are auto-detected on your system").
 		Options(engineOptions...).
-		Value(&selectedEngineID)).
-		Run()
+		Value(&selectedEngineID)))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -211,22 +211,20 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 	modelOptions = append(modelOptions, huh.NewOption("➕ Custom Model Path / ID...", "custom"))
 
 	var selectedModel string
-	err = ui.NewForm(huh.NewSelect[string]().
+	err = ui.Run(ui.NewForm(huh.NewSelect[string]().
 		Title(fmt.Sprintf("Select Model for %s:", selectedEngine.Name())).
 		Description(fmt.Sprintf("Discovered %d models in standard directories", len(models))).
 		Options(modelOptions...).
-		Value(&selectedModel)).
-		Run()
+		Value(&selectedModel)))
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if selectedModel == "custom" {
-		err = ui.NewForm(huh.NewInput().
+		err = ui.Run(ui.NewForm(huh.NewInput().
 			Title("Enter custom Model Path or Identifier:").
 			Placeholder("/path/to/model or huggingface/repo").
-			Value(&selectedModel)).
-			Run()
+			Value(&selectedModel)))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -292,7 +290,7 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 		}
 	}
 
-	err = ui.NewForm(formFields...).WithShowHelp(true).Run()
+	err = ui.Run(ui.NewForm(formFields...).WithShowHelp(true))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -304,12 +302,11 @@ func runNewSetupWizard() (*engine.LaunchConfig, engine.Engine, error) {
 		thermalOptions = append(thermalOptions, huh.NewOption(p.Description, p.Name))
 	}
 
-	err = ui.NewForm(huh.NewSelect[string]().
+	err = ui.Run(ui.NewForm(huh.NewSelect[string]().
 		Title("Thermal & Power Throttling Profile:").
 		Description("Controls background duty-cycle pausing and OS scheduling priority").
 		Options(thermalOptions...).
-		Value(&selectedThermal)).
-		Run()
+		Value(&selectedThermal)))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -378,40 +375,35 @@ func rememberRouterConfigPath(path string) error {
 
 func startRouterMode() {
 	configPath := lastRouterConfigPath()
-	if err := ui.NewForm(huh.NewInput().
+	if err := ui.Run(ui.NewForm(huh.NewInput().
 		Title("Router Config File Path:").
-		Value(&configPath)).
-		Run(); err != nil {
-		fmt.Println("Aborted.")
+		Value(&configPath))); err != nil {
+		ui.Println("Aborted.")
 		return
 	}
 
 	configPath, err := resolveRouterConfigPath(configPath)
 	if err != nil {
-		fmt.Println(warnStyle.Render(err.Error()))
+		ui.Println(warnStyle.Render(err.Error()))
 		return
 	}
 	cfg, err := router.LoadRouterConfig(configPath)
 	if err != nil {
-		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to load router config: %v", err)))
+		ui.Println(warnStyle.Render(fmt.Sprintf("Failed to load router config: %v", err)))
 		return
 	}
 
 	r, err := router.NewRouter(cfg)
 	if err != nil {
-		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to create router: %v", err)))
+		ui.Println(warnStyle.Render(fmt.Sprintf("Failed to create router: %v", err)))
 		return
 	}
 
 	if err := rememberRouterConfigPath(configPath); err != nil {
-		fmt.Println(warnStyle.Render(fmt.Sprintf("Could not remember router config path: %v", err)))
+		ui.Println(warnStyle.Render(fmt.Sprintf("Could not remember router config path: %v", err)))
 	}
 
-	fmt.Println(infoStyle.Render("🚀 Starting Multi-Model Router..."))
-	fmt.Printf("   Host:        %s\n", cfg.Host)
-	fmt.Printf("   Port:        %d\n", cfg.Port)
-	fmt.Printf("   Models:      %d\n", len(cfg.Models))
-	fmt.Printf("   Idle Timeout: %d minutes\n", cfg.IdleTimeoutMin)
+	ui.Stop()
 
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -430,9 +422,7 @@ func startRouterMode() {
 }
 
 func createRouterConfig() {
-	fmt.Println(titleStyle.Render(" Router Config Creator "))
-	fmt.Println("Create a router config file that defines multiple models with one API endpoint.")
-	fmt.Println()
+	ui.Println(titleStyle.Render(" Router Config Creator ") + " " + subtleStyle.Render("One API endpoint for multiple models."))
 
 	// Base router settings
 	var host string = "127.0.0.1"
@@ -440,12 +430,15 @@ func createRouterConfig() {
 	var idleTimeoutStr string = "10"
 	var memoryReserveStr string = "10"
 
-	_ = ui.NewForm(
+	if ui.Run(ui.NewForm(
 		huh.NewInput().Title("Host (leave blank for localhost)").Value(&host),
 		huh.NewInput().Title("Port").Value(&portStr),
 		huh.NewInput().Title("Idle timeout (minutes)").Value(&idleTimeoutStr),
 		huh.NewInput().Title("Memory reserve (% for OS)").Value(&memoryReserveStr),
-	).WithShowHelp(true).Run()
+	).WithShowHelp(true)) != nil {
+		ui.Println("Aborted.")
+		return
+	}
 
 	if strings.TrimSpace(host) == "" {
 		host = "127.0.0.1"
@@ -466,10 +459,12 @@ func createRouterConfig() {
 
 	for {
 		var modelName string
-		_ = ui.NewForm(huh.NewInput().
+		if ui.Run(ui.NewForm(huh.NewInput().
 			Title("Model name (API identifier, e.g. gpt-4o-mini)").
-			Value(&modelName)).
-			Run()
+			Value(&modelName))) != nil {
+			ui.Println("Aborted.")
+			return
+		}
 		modelName = strings.TrimSpace(modelName)
 
 		if modelName == "" {
@@ -486,11 +481,13 @@ func createRouterConfig() {
 		}
 
 		var selectedEngineID string
-		_ = ui.NewForm(huh.NewSelect[string]().
+		if ui.Run(ui.NewForm(huh.NewSelect[string]().
 			Title("Engine for this model").
 			Options(engineOptions...).
-			Value(&selectedEngineID)).
-			Run()
+			Value(&selectedEngineID))) != nil {
+			ui.Println("Aborted.")
+			return
+		}
 
 		eng, _ := engine.Get(selectedEngineID)
 
@@ -504,23 +501,29 @@ func createRouterConfig() {
 			}
 			modelOptions = append(modelOptions, huh.NewOption("➕ Custom path", "custom"))
 
-			_ = ui.NewForm(huh.NewSelect[string]().
+			if ui.Run(ui.NewForm(huh.NewSelect[string]().
 				Title("Model path").
 				Options(modelOptions...).
-				Value(&modelPath)).
-				Run()
+				Value(&modelPath))) != nil {
+				ui.Println("Aborted.")
+				return
+			}
 
 			if modelPath == "custom" {
-				_ = ui.NewForm(huh.NewInput().
+				if ui.Run(ui.NewForm(huh.NewInput().
 					Title("Enter model path").
-					Value(&modelPath)).
-					Run()
+					Value(&modelPath))) != nil {
+					ui.Println("Aborted.")
+					return
+				}
 			}
 		} else {
-			_ = ui.NewForm(huh.NewInput().
+			if ui.Run(ui.NewForm(huh.NewInput().
 				Title("Model path").
-				Value(&modelPath)).
-				Run()
+				Value(&modelPath))) != nil {
+				ui.Println("Aborted.")
+				return
+			}
 		}
 
 		// Thermal profile
@@ -529,11 +532,13 @@ func createRouterConfig() {
 		for _, p := range osutil.GetAllThermalProfiles() {
 			thermalOptions = append(thermalOptions, huh.NewOption(p.Description, p.Name))
 		}
-		_ = ui.NewForm(huh.NewSelect[string]().
+		if ui.Run(ui.NewForm(huh.NewSelect[string]().
 			Title("Thermal profile").
 			Options(thermalOptions...).
-			Value(&thermalProfile)).
-			Run()
+			Value(&thermalProfile))) != nil {
+			ui.Println("Aborted.")
+			return
+		}
 
 		models[modelName] = &router.ModelConfig{
 			Engine:         selectedEngineID,
@@ -542,33 +547,37 @@ func createRouterConfig() {
 			ThermalProfile: thermalProfile,
 		}
 
-		fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Added model '%s' -> %s", modelName, selectedEngineID)))
+		ui.Println(infoStyle.Render(fmt.Sprintf("✔ Added model '%s' -> %s", modelName, selectedEngineID)))
 
 		var addAnother bool
-		_ = ui.NewForm(huh.NewConfirm().
+		if ui.Run(ui.NewForm(huh.NewConfirm().
 			Title("Add another model?").
-			Value(&addAnother)).
-			Run()
+			Value(&addAnother))) != nil {
+			ui.Println("Aborted.")
+			return
+		}
 		if !addAnother {
 			break
 		}
 	}
 
 	if len(models) == 0 {
-		fmt.Println(warnStyle.Render("No models added. Router config not created."))
+		ui.Println(warnStyle.Render("No models added. Router config not created."))
 		return
 	}
 
 	// Save config
 	var savePath string = "~/.lowkey/router.json"
-	_ = ui.NewForm(huh.NewInput().
+	if ui.Run(ui.NewForm(huh.NewInput().
 		Title("Save config to").
-		Value(&savePath)).
-		Run()
+		Value(&savePath))) != nil {
+		ui.Println("Aborted.")
+		return
+	}
 
 	savePath, err := resolveRouterConfigPath(savePath)
 	if err != nil {
-		fmt.Println(warnStyle.Render(fmt.Sprintf("Invalid config path: %v", err)))
+		ui.Println(warnStyle.Render(fmt.Sprintf("Invalid config path: %v", err)))
 		return
 	}
 
@@ -582,20 +591,20 @@ func createRouterConfig() {
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to serialize config: %v", err)))
+		ui.Println(warnStyle.Render(fmt.Sprintf("Failed to serialize config: %v", err)))
 		return
 	}
 
 	if err := os.WriteFile(savePath, data, 0644); err != nil {
-		fmt.Println(warnStyle.Render(fmt.Sprintf("Failed to write config: %v", err)))
+		ui.Println(warnStyle.Render(fmt.Sprintf("Failed to write config: %v", err)))
 		return
 	}
 
 	if err := rememberRouterConfigPath(savePath); err != nil {
-		fmt.Println(warnStyle.Render(fmt.Sprintf("Could not remember router config path: %v", err)))
+		ui.Println(warnStyle.Render(fmt.Sprintf("Could not remember router config path: %v", err)))
 	}
-	fmt.Println(infoStyle.Render(fmt.Sprintf("✔ Router config saved to: %s", savePath)))
-	fmt.Println(subtleStyle.Render("Run lowkey and choose 'Start Multi-Model Router' to use it."))
+	ui.Println(infoStyle.Render(fmt.Sprintf("✔ Router config saved to: %s", savePath)))
+	ui.Println(subtleStyle.Render("Run lowkey and choose 'Start Multi-Model Router' to use it."))
 }
 
 func launchEngine(throttler osutil.OSThrottler, eng engine.Engine, cfg *engine.LaunchConfig) {
