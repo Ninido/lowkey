@@ -9,6 +9,24 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+func TestFormResizesWithoutLosingInput(t *testing.T) {
+	var name string
+	input := huh.NewInput().Title("Setup Profile Name:").Value(&name)
+	form := NewForm(input)
+	form.Init()
+	input.Focus()
+	for _, width := range []int{160, 40, 200, 30, 80, 25, 160} {
+		form.Update(tea.WindowSizeMsg{Width: width, Height: 40})
+		if got, want := lipgloss.Width(form.View()), min(60, width-1); got != want {
+			t.Fatalf("resize to %d: form width %d, expected %d", width, got, want)
+		}
+		form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	}
+	if name != "xxxxxxx" {
+		t.Fatalf("resizing lost input: %q", name)
+	}
+}
+
 func TestProfileInputKeepsFormWidth(t *testing.T) {
 	var name string
 	input := huh.NewInput().Title("Setup Profile Name:").

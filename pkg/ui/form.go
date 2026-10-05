@@ -3,15 +3,21 @@ package ui
 import (
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/x/term"
 )
 
-// NewForm sizes the form itself; Field.Run would overwrite a field's width.
+// boundedLayout keeps Huh's automatic resize handling, with a width ceiling.
+type boundedLayout struct{ huh.Layout }
+
+func (boundedLayout) GroupWidth(_ *huh.Form, _ *huh.Group, width int) int {
+	return max(1, min(60, width-1)) // Leave the final column free to avoid autowrap.
+}
+
+// NewForm uses an alternate screen so terminal reflow cannot displace old rows.
 func NewForm(fields ...huh.Field) *huh.Form {
-	width := 60
-	if w, _, err := term.GetSize(os.Stderr.Fd()); err == nil && w > 1 {
-		width = min(width, w-1) // Leave the last terminal column free to avoid autowrap.
-	}
-	return huh.NewForm(huh.NewGroup(fields...)).WithWidth(width).WithShowHelp(false)
+	return huh.NewForm(huh.NewGroup(fields...).WithWidth(60)).
+		WithLayout(boundedLayout{huh.LayoutDefault}).
+		WithShowHelp(false).
+		WithProgramOptions(tea.WithOutput(os.Stderr), tea.WithReportFocus(), tea.WithAltScreen())
 }
